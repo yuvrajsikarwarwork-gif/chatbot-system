@@ -1,0 +1,16 @@
+node_modules/
+dist/
+build/
+.next/
+out/
+.env
+.env.local
+.env.development
+.env.production
+npm-debug.log
+yarn.lock
+pnpm-lock.yaml
+coverage/
+.cache/
+*.log
+*.tsbuildinfo

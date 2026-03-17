@@ -1,0 +1,34 @@
+# Create the main src directory and subfolders
+$dirs = @(
+    "src/controllers", "src/routes", "src/services", 
+    "src/models", "src/middleware", "src/queue", 
+    "src/utils", "src/config"
+)
+
+foreach ($dir in $dirs) {
+    if (-not (Test-Path $dir)) {
+        New-Item -Path $dir -ItemType Directory -Force
+    }
+}
+
+# Define all the files to be created
+$files = @(
+    "src/controllers/authController.ts", "src/controllers/botController.ts", "src/controllers/flowController.ts", "src/controllers/integrationController.ts", "src/controllers/messageController.ts", "src/controllers/conversationController.ts", "src/controllers/analyticsController.ts", "src/controllers/agentController.ts", "src/controllers/queueController.ts",
+    "src/routes/authRoutes.ts", "src/routes/botRoutes.ts", "src/routes/flowRoutes.ts", "src/routes/integrationRoutes.ts", "src/routes/messageRoutes.ts", "src/routes/conversationRoutes.ts", "src/routes/analyticsRoutes.ts", "src/routes/agentRoutes.ts", "src/routes/queueRoutes.ts",
+    "src/services/authService.ts", "src/services/botService.ts", "src/services/flowService.ts", "src/services/integrationService.ts", "src/services/messageService.ts", "src/services/conversationService.ts", "src/services/analyticsService.ts", "src/services/agentService.ts", "src/services/queueService.ts",
+    "src/models/userModel.ts", "src/models/botModel.ts", "src/models/flowModel.ts", "src/models/integrationModel.ts", "src/models/conversationModel.ts", "src/models/messageModel.ts", "src/models/stateModel.ts", "src/models/analyticsModel.ts", "src/models/agentTicketModel.ts", "src/models/queueJobModel.ts",
+    "src/middleware/authMiddleware.ts", "src/middleware/errorMiddleware.ts", "src/middleware/rateLimiter.ts", "src/middleware/validateRequest.ts",
+    "src/queue/redisClient.ts", "src/queue/queueProducer.ts", "src/queue/jobTypes.ts",
+    "src/utils/logger.ts", "src/utils/idGenerator.ts", "src/utils/time.ts",
+    "src/config/db.ts", "src/config/redis.ts", "src/config/env.ts",
+    "src/server.ts"
+)
+
+# Create each file
+foreach ($file in $files) {
+    if (-not (Test-Path $file)) {
+        New-Item -Path $file -ItemType File -Force
+    }
+}
+
+Write-Host "Success! Your backend-api structure is ready." -ForegroundColor Green

@@ -1,0 +1,12 @@
+-- base schema
+
+-- users
+-- bots
+-- flows
+-- integrations
+-- conversations
+-- messages
+-- conversation_state
+-- analytics_events
+-- agent_tickets
+-- queue_jobs
