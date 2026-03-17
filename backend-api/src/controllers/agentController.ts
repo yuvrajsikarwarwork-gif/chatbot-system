@@ -1,84 +1,55 @@
-// src/controllers/agentController.ts
+import { Request, Response } from "express";
+import { query } from "../config/db";
+import axios from "axios";
 
-import { Response, NextFunction } from "express";
-import { AuthRequest } from "../middleware/authMiddleware";
+const DEFAULT_PHONE_ID = process.env.PHONE_NUMBER_ID || "1030050193525162";
+const TOKEN = process.env.WHATSAPP_ACCESS_TOKEN || "";
 
-import {
-  createTicketService,
-  getTicketsService,
-  closeTicketService,
-  replyTicketService,
-} from "../services/agentService";
-
-export async function createTicketCtrl(
-  req: AuthRequest,
-  res: Response,
-  next: NextFunction
-) {
+export const getInboxLeads = async (req: Request, res: Response) => {
   try {
-    const data =
-      await createTicketService(
-        req.body.conversation_id,
-        req.user.user_id
-      );
-
-    res.json(data);
-  } catch (err) {
-    next(err);
+    const result = await query(`
+      SELECT id, wa_number, wa_name, bot_active, human_active, updated_at 
+      FROM leads 
+      ORDER BY human_active DESC, updated_at DESC
+    `);
+    res.json(result.rows);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
   }
-}
+};
 
-export async function getTicketsCtrl(
-  req: AuthRequest,
-  res: Response,
-  next: NextFunction
-) {
+export const sendAgentMessage = async (req: Request, res: Response) => {
+  const { wa_number, message } = req.body;
   try {
-    const data =
-      await getTicketsService(
-        req.params.botId,
-        req.user.user_id
-      );
-
-    res.json(data);
-  } catch (err) {
-    next(err);
+    await axios({
+      method: "POST",
+      url: `https://graph.facebook.com/v18.0/${DEFAULT_PHONE_ID}/messages`,
+      data: { messaging_product: "whatsapp", to: wa_number, type: "text", text: { body: message } },
+      headers: { Authorization: `Bearer ${TOKEN}` }
+    });
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.response?.data || error.message });
   }
-}
+};
 
-export async function closeTicketCtrl(
-  req: AuthRequest,
-  res: Response,
-  next: NextFunction
-) {
+export const resumeBotManually = async (req: Request, res: Response) => {
+  const { wa_number } = req.body;
   try {
-    const data =
-      await closeTicketService(
-        req.params.id,
-        req.user.user_id
-      );
+    await query(`
+      UPDATE leads 
+      SET human_active = false, bot_active = true, last_node_id = NULL, retry_count = 0 
+      WHERE wa_number = $1
+    `, [wa_number]);
 
-    res.json(data);
-  } catch (err) {
-    next(err);
+    await axios({
+      method: "POST",
+      url: `https://graph.facebook.com/v18.0/${DEFAULT_PHONE_ID}/messages`,
+      data: { messaging_product: "whatsapp", to: wa_number, type: "text", text: { body: "Agent session ended. Bot resumed." } },
+      headers: { Authorization: `Bearer ${TOKEN}` }
+    });
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
   }
-}
-
-export async function replyTicketCtrl(
-  req: AuthRequest,
-  res: Response,
-  next: NextFunction
-) {
-  try {
-    const data =
-      await replyTicketService(
-        req.params.id,
-        req.user.user_id,
-        req.body.message
-      );
-
-    res.json(data);
-  } catch (err) {
-    next(err);
-  }
-}
+};

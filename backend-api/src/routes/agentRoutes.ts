@@ -1,26 +1,15 @@
-// src/routes/agentRoutes.ts
-
 import { Router } from "express";
-
-import {
-  createTicketCtrl,
-  getTicketsCtrl,
-  closeTicketCtrl,
-  replyTicketCtrl,
+import { 
+  getInboxLeads, 
+  sendAgentMessage, 
+  resumeBotManually 
 } from "../controllers/agentController";
-
-import { authMiddleware } from "../middleware/authMiddleware";
 
 const router = Router();
 
-router.use(authMiddleware);
-
-router.post("/ticket", createTicketCtrl);
-
-router.get("/bot/:botId", getTicketsCtrl);
-
-router.post("/close/:id", closeTicketCtrl);
-
-router.post("/reply/:id", replyTicketCtrl);
+// These endpoints will be prefixed with /api/chat (from your index.ts)
+router.get("/leads", getInboxLeads);
+router.post("/send", sendAgentMessage);
+router.post("/toggle-bot", resumeBotManually);
 
 export default router;

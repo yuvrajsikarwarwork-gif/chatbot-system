@@ -1,29 +1,22 @@
 // src/routes/index.ts
-
 import { Router } from "express";
 
 import authRoutes from "./authRoutes";
 import botRoutes from "./botRoutes";
-import flowRoutes from "./flowRoutes"; // ✅ Flow routes successfully imported
-
-// import integrationRoutes from "./integrationRoutes";
-// import messageRoutes from "./messageRoutes";
-// import conversationRoutes from "./conversationRoutes";
-// import analyticsRoutes from "./analyticsRoutes";
-// import agentRoutes from "./agentRoutes";
-// import queueRoutes from "./queueRoutes";
+import flowRoutes from "./flowRoutes";
+import templateRoutes from "./templateRoutes"; // ✅ Added
+import leadRoutes from "./leadRoutes";         // ✅ Added
+import agentRoutes from "./agentRoutes";       // ✅ Added (Powers Live Chat)
+import webhookRoutes from "./webhookRoutes";   // ✅ Added (Powers WhatsApp)
 
 const router = Router();
 
 router.use("/auth", authRoutes);
 router.use("/bots", botRoutes);
-router.use("/flows", flowRoutes); // ✅ Flow routes successfully mounted
-
-// router.use("/integrations", integrationRoutes);
-// router.use("/messages", messageRoutes);
-// router.use("/conversations", conversationRoutes);
-// router.use("/analytics", analyticsRoutes);
-// router.use("/agents", agentRoutes);
-// router.use("/queue", queueRoutes);
+router.use("/flows", flowRoutes);
+router.use("/templates", templateRoutes);
+router.use("/leads", leadRoutes);
+router.use("/chat", agentRoutes); 
+router.use("/webhook", webhookRoutes);
 
 export default router;
