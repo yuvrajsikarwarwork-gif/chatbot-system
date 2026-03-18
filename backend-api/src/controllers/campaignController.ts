@@ -1,16 +1,21 @@
-import { Request, Response } from "express";
+import { Response } from "express";
 import { query } from "../config/db";
 import axios from "axios";
-
-const DEFAULT_PHONE_ID = process.env.PHONE_NUMBER_ID || "1030050193525162";
-const TOKEN = process.env.WHATSAPP_ACCESS_TOKEN || "";
+import { AuthRequest } from "../middleware/authMiddleware";
 
 /**
  * Fetch all available templates from your database (Synced from Meta)
  */
-export const getTemplates = async (req: Request, res: Response) => {  
+export const getTemplates = async (req: AuthRequest, res: Response) => {  
   try {
-    const result = await query("SELECT * FROM templates ORDER BY created_at DESC");
+    const { botId } = req.params;
+    
+    // ✅ MULTI-TENANCY: Verify Bot Ownership
+    const botRes = await query("SELECT id FROM bots WHERE id = $1 AND user_id = $2", [botId, req.user!.id]);
+    if (!botRes.rows.length) return res.status(403).json({ error: "Unauthorized" });
+
+    // ✅ Scoped template retrieval
+    const result = await query("SELECT * FROM templates WHERE bot_id = $1 ORDER BY created_at DESC", [botId]);
     res.json(result.rows);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -20,17 +25,34 @@ export const getTemplates = async (req: Request, res: Response) => {
 /**
  * Launch a bulk broadcast to multiple leads
  */
-export const launchCampaign = async (req: Request, res: Response) => {
-  const { campaignName, templateName, language, leadsIds } = req.body;
+export const launchCampaign = async (req: AuthRequest, res: Response) => {
+  const { botId, campaignName, templateName, language, leadsIds } = req.body;
 
-  if (!templateName || !leadsIds || !leadsIds.length) {
-    return res.status(400).json({ error: "Template and Lead IDs are required." });
+  if (!botId || !templateName || !leadsIds || !leadsIds.length) {
+    return res.status(400).json({ error: "Bot ID, Template, and Lead IDs are required." });
   }
 
   try {
-    // 1. Fetch the specific leads from the database
-    const placeholders = leadsIds.map((_: any, i: number) => `$${i + 1}`).join(",");
-    const leadsRes = await query(`SELECT id, wa_number, variables FROM leads WHERE id IN (${placeholders})`, leadsIds);
+    // ✅ MULTI-TENANCY: Verify Bot Ownership & Fetch Credentials Dynamically
+    const botRes = await query(
+      "SELECT wa_phone_number_id, wa_access_token FROM bots WHERE id = $1 AND user_id = $2 AND status = 'active'", 
+      [botId, req.user!.id]
+    );
+    const targetBot = botRes.rows[0];
+
+    if (!targetBot) {
+      return res.status(403).json({ error: "Unauthorized or Bot inactive." });
+    }
+
+    const phoneId = targetBot.wa_phone_number_id;
+    const token = targetBot.wa_access_token;
+
+    // 1. Fetch the specific leads from the database (✅ Scoped to botId to prevent IDOR)
+    const placeholders = leadsIds.map((_: any, i: number) => `$${i + 2}`).join(",");
+    const leadsRes = await query(
+      `SELECT id, wa_number, variables FROM leads WHERE bot_id = $1 AND id IN (${placeholders})`, 
+      [botId, ...leadsIds]
+    );
     const targetLeads = leadsRes.rows;
 
     let successCount = 0;
@@ -43,7 +65,7 @@ export const launchCampaign = async (req: Request, res: Response) => {
       try {
         await axios({
           method: "POST",
-          url: `https://graph.facebook.com/v18.0/${DEFAULT_PHONE_ID}/messages`,
+          url: `https://graph.facebook.com/v18.0/${phoneId}/messages`,
           data: {
             messaging_product: "whatsapp",
             to: lead.wa_number,
@@ -54,7 +76,7 @@ export const launchCampaign = async (req: Request, res: Response) => {
               // Dynamic variable injection can be added here if templates require it
             }
           },
-          headers: { Authorization: `Bearer ${TOKEN}` }
+          headers: { Authorization: `Bearer ${token}` }
         });
         
         successCount++;
@@ -64,10 +86,10 @@ export const launchCampaign = async (req: Request, res: Response) => {
       }
     }
 
-    // 3. Log the campaign in the database
+    // 3. Log the campaign in the database (✅ Scoped to botId)
     await query(
-      "INSERT INTO analytics_events (event_type, event_data, created_at) VALUES ($1, $2, NOW())",
-      ["campaign_launched", JSON.stringify({ campaignName, templateName, successCount, failCount })]
+      "INSERT INTO analytics_events (bot_id, event_type, event_data, created_at) VALUES ($1, $2, $3, NOW())",
+      [botId, "campaign_launched", JSON.stringify({ campaignName, templateName, successCount, failCount })]
     );
 
     res.json({ 

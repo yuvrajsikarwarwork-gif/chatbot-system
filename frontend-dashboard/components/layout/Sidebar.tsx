@@ -1,20 +1,21 @@
 import Link from "next/link";
 import { useRouter } from "next/router";
 
-// Standardized CSS-based icons to maintain your clean, lightweight UI
+// Standardized CSS-based icons
 const Icons = {
   Dashboard: () => <div className="w-4 h-4 border-2 border-current rounded-sm" />,
   Bots: () => <div className="w-4 h-4 border-2 border-current rounded-full" />,
   Flow: () => <div className="w-4 h-4 flex gap-0.5"><div className="w-1 h-4 bg-current"/><div className="w-1 h-2 bg-current self-center"/><div className="w-1 h-4 bg-current"/></div>,
   Leads: () => <div className="w-4 h-4 border-2 border-current rounded-md flex items-center justify-center relative overflow-hidden"><div className="w-full h-[1px] bg-current absolute top-1/2 -translate-y-1/2" /><div className="h-full w-[1px] bg-current absolute left-1/2 -translate-x-1/2" /></div>,
-  // --- NEW ICONS ---
   Templates: () => <div className="w-4 h-4 border-2 border-current rounded-sm flex flex-col gap-0.5 p-0.5"><div className="w-full h-[1px] bg-current"/><div className="w-full h-[1px] bg-current"/><div className="w-2 h-[1px] bg-current"/></div>,
   Campaigns: () => <div className="w-4 h-4 border-2 border-current rounded-full relative overflow-hidden"><div className="absolute inset-0 border-b-2 border-current -rotate-45 translate-y-[-1px]" /></div>,
-  // -----------------
   Chat: () => <div className="w-4 h-3 border-2 border-current rounded-sm relative after:content-[''] after:absolute after:top-full after:left-1 after:border-4 after:border-transparent after:border-t-current" />,
   Integrations: () => <div className="w-4 h-4 border-2 border-current rounded-full flex items-center justify-center"><div className="w-1 h-1 bg-current" /></div>,
   Analytics: () => <div className="w-4 h-4 flex items-end gap-0.5"><div className="w-1 h-2 bg-current"/><div className="w-1 h-4 bg-current"/><div className="w-1 h-3 bg-current"/></div>,
-  Agents: () => <div className="w-4 h-4 border-2 border-current rounded-t-lg" />
+  Agents: () => <div className="w-4 h-4 border-2 border-current rounded-t-lg" />,
+  // --- NEW SETTINGS & TEAM ICONS ---
+  Settings: () => <div className="w-4 h-4 border-2 border-dashed border-current rounded-full animate-[spin_8s_linear_infinite]" />,
+  Team: () => <div className="w-4 h-4 flex items-center justify-center gap-0.5"><div className="w-1.5 h-3 border-2 border-current rounded-t-md" /><div className="w-1.5 h-3 border-2 border-current rounded-t-md" /></div>
 };
 
 export default function Sidebar() {
@@ -25,12 +26,15 @@ export default function Sidebar() {
     { label: "Bots", path: "/bots", Icon: Icons.Bots },
     { label: "Flow Builder", path: "/flows", Icon: Icons.Flow },
     { label: "Leads", path: "/leads", Icon: Icons.Leads },
-    { label: "Templates", path: "/templates", Icon: Icons.Templates }, // Added Templates
-    { label: "Campaigns", path: "/campaigns", Icon: Icons.Campaigns }, // Added Campaigns
+    { label: "Templates", path: "/templates", Icon: Icons.Templates },
+    { label: "Campaigns", path: "/campaigns", Icon: Icons.Campaigns },
     { label: "Conversations", path: "/conversations", Icon: Icons.Chat },
     { label: "Integrations", path: "/integrations", Icon: Icons.Integrations },
     { label: "Analytics", path: "/analytics", Icon: Icons.Analytics },
     { label: "Agents", path: "/agents", Icon: Icons.Agents },
+    // ✅ Added Settings & Team
+    { label: "Team", path: "/settings?tab=team", Icon: Icons.Team }, 
+    { label: "Settings", path: "/settings", Icon: Icons.Settings },
   ];
 
   return (
@@ -44,7 +48,8 @@ export default function Sidebar() {
       
       <nav className="flex-1 p-4 space-y-1 overflow-y-auto custom-scrollbar">
         {menu.map(({ label, path, Icon }) => {
-          const isActive = router.pathname === path;
+          // Check if path matches exactly or if it's a sub-tab of settings
+          const isActive = router.pathname === path || (path.startsWith('/settings') && router.pathname === '/settings');
           return (
             <Link 
               key={path} 

@@ -7,7 +7,7 @@ import { env } from "../config/env";
 export async function loginService(email: string, password: string) {
   const user = await findUserByEmail(email);
 
-  // We know this is returning { id, email, password } from your logs
+  // We know this is returning { id, email, password, role } from your logs
   console.log("DATABASE_RESULT:", user);
 
   if (!user) {
@@ -23,26 +23,38 @@ export async function loginService(email: string, password: string) {
     throw { status: 400, message: "Invalid login" };
   }
 
-  const token = jwt.sign({ id: user.id }, env.JWT_SECRET, { expiresIn: '24h' });
+  // Inject role into JWT payload
+  const token = jwt.sign({ id: user.id, role: user.role }, env.JWT_SECRET, { expiresIn: '24h' });
 
-  return { user, token };
+  // Remove password before returning
+  const { password: _, ...userWithoutPassword } = user;
+
+  return { user: userWithoutPassword, token };
 }
 
 // Ensure your registerService also uses the correct column for consistency
-export async function registerService(email: string, password: string, name: string) {
+export async function registerService(email: string, password: string, name: string, role?: string) {
   const existing = await findUserByEmail(email);
   if (existing) {
     throw { status: 400, message: "User exists" };
   }
 
   const hash = await bcrypt.hash(password, 10);
-  const user = await createUser(email, hash, name);
+  
+  // Create user, allowing role override if provided (useful for seed scripts, but validate in controllers if exposed)
+  const user = await createUser(email, hash, name, role || 'user');
 
-  const token = jwt.sign({ id: user.id }, env.JWT_SECRET, { expiresIn: '24h' });
+  // Inject role into JWT payload
+  const token = jwt.sign({ id: user.id, role: user.role }, env.JWT_SECRET, { expiresIn: '24h' });
 
   return { user, token };
 }
 
 export async function getUserService(id: string) {
-  return await findUserById(id);
+  const user = await findUserById(id);
+  if(user) {
+    const { password: _, ...userWithoutPassword } = user;
+    return userWithoutPassword;
+  }
+  return null;
 }

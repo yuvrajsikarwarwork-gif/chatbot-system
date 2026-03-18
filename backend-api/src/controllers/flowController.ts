@@ -1,5 +1,3 @@
-// backend-api/src/controllers/flowController.ts
-
 import { Response, NextFunction } from "express";
 import { AuthRequest } from "../middleware/authMiddleware";
 import {
@@ -15,7 +13,7 @@ export async function getFlowsByBot(req: AuthRequest, res: Response, next: NextF
     const { botId } = req.params;
     if (!botId || botId === "undefined") return res.status(200).json({ nodes: [], edges: [] });
 
-    const data = await getFlowsByBotService(botId, req.user.id);
+    const data = await getFlowsByBotService(botId, req.user!.id);
     if (!data || (Array.isArray(data) && data.length === 0)) {
       return res.status(200).json({ nodes: [], edges: [] });
     }
@@ -27,7 +25,7 @@ export async function getFlowsByBot(req: AuthRequest, res: Response, next: NextF
 
 export async function getFlow(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const data = await getFlowService(req.params.id, req.user.id);
+    const data = await getFlowService(req.params.id, req.user!.id);
     res.json(data);
   } catch (err) {
     next(err);
@@ -47,7 +45,7 @@ export async function saveFlowCtrl(req: AuthRequest, res: Response, next: NextFu
     if (!botId) return res.status(400).json({ error: "botId is missing in request." });
     if (!flowJson) return res.status(400).json({ error: "flow_json payload is missing." });
 
-    const data = await saveFlowService(botId, req.user.id, flowJson);
+    const data = await saveFlowService(botId, req.user!.id, flowJson);
     res.status(200).json(data);
   } catch (err) {
     console.error("❌ saveFlowCtrl Critical Error:", err);
@@ -57,7 +55,7 @@ export async function saveFlowCtrl(req: AuthRequest, res: Response, next: NextFu
 
 export async function createFlowCtrl(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const data = await saveFlowService(req.body.bot_id, req.user.id, req.body.flow_json);
+    const data = await saveFlowService(req.body.bot_id, req.user!.id, req.body.flow_json);
     res.json(data);
   } catch (err) {
     next(err);
@@ -66,7 +64,7 @@ export async function createFlowCtrl(req: AuthRequest, res: Response, next: Next
 
 export async function updateFlowCtrl(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const data = await updateFlowService(req.params.id, req.user.id, req.body.flow_json);
+    const data = await updateFlowService(req.params.id, req.user!.id, req.body.flow_json);
     res.json(data);
   } catch (err) {
     next(err);
@@ -75,7 +73,7 @@ export async function updateFlowCtrl(req: AuthRequest, res: Response, next: Next
 
 export async function deleteFlowCtrl(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    await deleteFlowService(req.params.id, req.user.id);
+    await deleteFlowService(req.params.id, req.user!.id);
     res.json({ success: true });
   } catch (err) {
     next(err);

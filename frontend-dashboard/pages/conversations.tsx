@@ -54,32 +54,26 @@ export default function ConversationsPage() {
     };
   }, []);
 
-  const handleSelectConversation = async (convo: any) => {
+const handleSelectConversation = async (convo: any) => {
   setActiveConversation(convo);
   activeConvoRef.current = convo;
-
-  // Clear messages instantly for snappy UX while loading
   setMessages([]);
 
-  // ✅ Fetch the actual chat history from the DB
   try {
-    const res = await apiClient.get(`/chat/messages/${convo.wa_number}`);
+    // Hits the updated endpoint in leadRoutes.ts
+    const res = await apiClient.get(`/leads/messages/${convo.wa_number}`);
 
     if (res.data && Array.isArray(res.data)) {
-
-      // Map the DB columns to the frontend expectations
       const formattedHistory = res.data.map((msg: any) => ({
         id: msg.id,
-        text: msg.text,
+        text: msg.message, // Maps DB 'message' to UI 'text'
         sender: msg.sender,
-        timestamp: msg.timestamp,
+        timestamp: msg.created_at, // Maps DB 'created_at' to UI 'timestamp'
       }));
-
       setMessages(formattedHistory);
     }
-
   } catch (err) {
-    console.error("Failed to fetch chat history:", err);
+    console.error("Chat history fetch failed:", err);
   }
 };
 

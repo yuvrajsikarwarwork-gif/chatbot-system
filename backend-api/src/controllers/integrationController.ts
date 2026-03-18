@@ -19,7 +19,7 @@ export async function getIntegrations(
   try {
     const data = await getIntegrationsService(
       req.params.botId,
-      req.user.user_id
+      req.user!.id // Fixed: user_id -> id
     );
 
     res.json(data);
@@ -36,7 +36,7 @@ export async function getIntegration(
   try {
     const data = await getIntegrationService(
       req.params.id,
-      req.user.user_id
+      req.user!.id // Fixed: user_id -> id
     );
 
     res.json(data);
@@ -53,7 +53,7 @@ export async function createIntegrationCtrl(
   try {
     const data = await createIntegrationService(
       req.body.bot_id,
-      req.user.user_id,
+      req.user!.id, // Fixed: user_id -> id
       req.body.type,
       req.body.config_json
     );
@@ -72,7 +72,7 @@ export async function updateIntegrationCtrl(
   try {
     const data = await updateIntegrationService(
       req.params.id,
-      req.user.user_id,
+      req.user!.id, // Fixed: user_id -> id
       req.body.config_json
     );
 
@@ -90,7 +90,7 @@ export async function deleteIntegrationCtrl(
   try {
     await deleteIntegrationService(
       req.params.id,
-      req.user.user_id
+      req.user!.id // Fixed: user_id -> id
     );
 
     res.json({ success: true });

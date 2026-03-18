@@ -17,7 +17,7 @@ export async function getConversations(
   try {
     const data = await getConversationsService(
       req.params.botId,
-      req.user.user_id
+      req.user!.id // Fixed: user_id -> id
     );
 
     res.json(data);
@@ -34,7 +34,7 @@ export async function getConversation(
   try {
     const data = await getConversationService(
       req.params.id,
-      req.user.user_id
+      req.user!.id // Fixed: user_id -> id
     );
 
     res.json(data);
@@ -49,11 +49,10 @@ export async function getMessages(
   next: NextFunction
 ) {
   try {
-    const data =
-      await getConversationMessagesService(
-        req.params.id,
-        req.user.user_id
-      );
+    const data = await getConversationMessagesService(
+      req.params.id,
+      req.user!.id // Fixed: user_id -> id
+    );
 
     res.json(data);
   } catch (err) {

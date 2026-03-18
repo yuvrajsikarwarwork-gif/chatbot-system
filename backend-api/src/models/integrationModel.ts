@@ -39,24 +39,27 @@ export async function createIntegration(
 
 export async function updateIntegration(
   id: string,
+  botId: string,
   config: any
 ) {
+  // DB-level scoping enforced
   const res = await query(
     `
     UPDATE integrations
     SET config_json = $1
-    WHERE id = $2
+    WHERE id = $2 AND bot_id = $3
     RETURNING *
     `,
-    [config, id]
+    [config, id, botId]
   );
 
   return res.rows[0];
 }
 
-export async function deleteIntegration(id: string) {
+export async function deleteIntegration(id: string, botId: string) {
+  // DB-level scoping enforced
   await query(
-    "DELETE FROM integrations WHERE id = $1",
-    [id]
+    "DELETE FROM integrations WHERE id = $1 AND bot_id = $2",
+    [id, botId]
   );
 }

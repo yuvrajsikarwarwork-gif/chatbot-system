@@ -2,6 +2,8 @@ import { Router } from "express";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
+import { authMiddleware } from "../middleware/authMiddleware";
+import { uploadLeadsCSV } from "../controllers/uploadController";
 
 const router = Router();
 
@@ -22,14 +24,36 @@ const storage = multer.diskStorage({
   },
 });
 
+// ✅ STRICT FILE SANITIZATION
+const fileFilter = (req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
+  const allowedMimeTypes = [
+    "text/csv",
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "application/pdf"
+  ];
+  
+  if (allowedMimeTypes.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new Error("Invalid file type. Only CSV, JPEG, PNG, WEBP, and PDF are allowed."));
+  }
+};
+
 const upload = multer({ 
   storage,
+  fileFilter,
   limits: { fileSize: 5 * 1024 * 1024 } // 5MB limit for WhatsApp compatibility
 });
 
+// ✅ MULTI-TENANCY: Lock down upload routes
+router.use(authMiddleware);
+
+// Standard Media Upload
 router.post("/", upload.single("file"), (req, res) => {
   if (!req.file) {
-    return res.status(400).json({ error: "No file uploaded" });
+    return res.status(400).json({ error: "No file uploaded or invalid format" });
   }
 
   // Generate public URL. 
@@ -41,5 +65,8 @@ router.post("/", upload.single("file"), (req, res) => {
     filename: req.file.filename 
   });
 });
+
+// CSV Leads Upload
+router.post("/csv", upload.single("file"), uploadLeadsCSV);
 
 export default router;

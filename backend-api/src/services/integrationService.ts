@@ -70,7 +70,8 @@ export async function updateIntegrationService(
     throw { status: 404 };
   }
 
-  return updateIntegration(id, config);
+  // Pass validated bot_id to enforce boundary in DB
+  return updateIntegration(id, bot.id, config);
 }
 
 export async function deleteIntegrationService(
@@ -87,5 +88,6 @@ export async function deleteIntegrationService(
     throw { status: 404 };
   }
 
-  await deleteIntegration(id);
+  // Pass validated bot_id to enforce boundary in DB
+  await deleteIntegration(id, bot.id);
 }

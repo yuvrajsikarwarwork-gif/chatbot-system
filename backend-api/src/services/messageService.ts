@@ -1,17 +1,38 @@
-import { query } from "../config/db";
+// src/services/messageService.ts
 
-export async function getMessagesService(botId: string) {
-  const result = await query(
-    "SELECT * FROM messages WHERE bot_id = $1 ORDER BY created_at ASC",
-    [botId]
-  );
-  return result.rows;
-}
+import { 
+  findConversation, 
+  createConversation 
+} from "../models/conversationModel";
+import { 
+  createMessage 
+} from "../models/messageModel";
 
-export async function saveMessageService(botId: string, role: string, content: string) {
-  const result = await query(
-    "INSERT INTO messages (bot_id, role, content) VALUES ($1, $2, $3) RETURNING *",
-    [botId, role, content]
+/**
+ * Handles incoming messages from external channel webhooks (WhatsApp, FB, etc.)
+ * Resolves the user to a conversation and saves the message.
+ */
+export async function incomingMessageService(
+  botId: string,
+  channel: string,
+  externalUserId: string,
+  messageText: string
+) {
+  // 1. Attempt to find an active conversation for this user on this channel
+  let conversation = await findConversation(botId, channel, externalUserId);
+
+  // 2. If no conversation exists, initialize a new one
+  if (!conversation) {
+    conversation = await createConversation(botId, channel, externalUserId);
+  }
+
+  // 3. Save the message tied strictly to the conversation ID
+  // Sender is hardcoded to 'user' for inbound external messages
+  const savedMessage = await createMessage(
+    conversation.id, 
+    "user", 
+    messageText
   );
-  return result.rows[0];
+
+  return savedMessage;
 }

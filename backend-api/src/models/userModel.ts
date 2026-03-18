@@ -1,9 +1,9 @@
 import { query } from "../config/db";
 
 export async function findUserByEmail(email: string) {
-  // We select 'password_hash' but tell the code to call it 'password'
+  // Now that the column exists, this SELECT will succeed
   const res = await query(
-    "SELECT id, email, password_hash AS password FROM users WHERE email = $1",
+    "SELECT id, email, password_hash AS password, role FROM users WHERE email = $1",
     [email]
   );
 
@@ -12,7 +12,7 @@ export async function findUserByEmail(email: string) {
 
 export async function findUserById(id: string) {
   const res = await query(
-    "SELECT id, email, password_hash AS password FROM users WHERE id = $1",
+    "SELECT id, email, password_hash AS password, role FROM users WHERE id = $1",
     [id]
   );
 
@@ -22,16 +22,16 @@ export async function findUserById(id: string) {
 export async function createUser(
   email: string,
   passwordHash: string,
-  name: string
+  name: string,
+  role: string = 'user' 
 ) {
-  // Ensure we use the new column name 'password_hash' here too
   const res = await query(
     `
-    INSERT INTO users (id, email, password_hash, name)
-    VALUES (gen_random_uuid(), $1, $2, $3)
-    RETURNING id, email, name
+    INSERT INTO users (id, email, password_hash, name, role)
+    VALUES (gen_random_uuid(), $1, $2, $3, $4)
+    RETURNING id, email, name, role
     `,
-    [email, passwordHash, name]
+    [email, passwordHash, name, role]
   );
 
   return res.rows[0];

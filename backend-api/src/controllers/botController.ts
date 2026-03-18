@@ -1,6 +1,4 @@
 import { Response } from "express";
-import fs from "fs";
-import path from "path";
 import { AuthRequest } from "../middleware/authMiddleware";
 import { query } from "../config/db"; 
 import { 
@@ -14,7 +12,6 @@ import {
 /**
  * UNIFIED UPDATE CONTROLLER
  * Handles name, keywords, tokens, phone ID, and the Live Status toggle.
- * Also synchronizes the global .env file when a token is updated.
  */
 export async function updateBotCtrl(req: AuthRequest, res: Response) {
   try {
@@ -24,27 +21,8 @@ export async function updateBotCtrl(req: AuthRequest, res: Response) {
     // 1. Update the Database via Service (Handles partial updates like just the 'status')
     const bot = await updateBotService(id, req.user.id, req.body);
     
-    // 2. Synchronize the .env file if an access token was provided
-    if (req.body.wa_access_token) {
-      try {
-        const envPath = path.resolve(process.cwd(), '.env');
-        let envConfig = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
-        const tokenRegex = /^WHATSAPP_ACCESS_TOKEN=.*$/m;
-        const newTokenLine = `WHATSAPP_ACCESS_TOKEN=${req.body.wa_access_token}`;
-
-        envConfig = tokenRegex.test(envConfig) 
-          ? envConfig.replace(tokenRegex, newTokenLine) 
-          : envConfig + `\n${newTokenLine}`;
-
-        fs.writeFileSync(envPath, envConfig, 'utf8');
-        
-        // Inject into current process so no restart is needed for the engine
-        process.env.WHATSAPP_ACCESS_TOKEN = req.body.wa_access_token;
-        console.log("✅ [System] Global .env Token synchronized.");
-      } catch (err: any) {
-        console.warn("⚠️ [Warning] Failed to write to .env:", err.message);
-      }
-    }
+    // NOTE: Removed .env synchronization logic. 
+    // In a multi-tenant system, tokens must be retrieved dynamically from the DB per request.
 
     res.json(bot);
   } catch (error: any) {

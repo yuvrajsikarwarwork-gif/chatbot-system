@@ -1,13 +1,13 @@
 import axios from "axios";
 import { query } from "../config/db";
 
-const DEFAULT_PHONE_ID = process.env.PHONE_NUMBER_ID || "1030050193525162";
 const MAX_RETRY_LIMIT = 3;
 const AGENT_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 
 /* ============================
-    GLOBAL STORES & LOCKS
+   GLOBAL STORES & LOCKS
 ============================ */
+// Note: In production with multiple worker nodes, consider moving locks/timers to Redis.
 const processingLocks: Set<string> = new Set(); 
 const ESCAPE_KEYWORDS = ["end", "exit", "stop", "cancel", "quit"];
 const RESET_KEYWORDS = ["reset", "restart", "home", "menu", "start"];
@@ -19,17 +19,17 @@ if (!globalAny.activeTimeouts) globalAny.activeTimeouts = new Map<string, NodeJS
 const activeReminders = globalAny.activeReminders;
 const activeTimeouts = globalAny.activeTimeouts;
 
-export const clearUserTimers = (from: string) => {
-  if (activeReminders.has(from)) clearTimeout(activeReminders.get(from)!);
-  if (activeTimeouts.has(from)) clearTimeout(activeTimeouts.get(from)!);
-  activeReminders.delete(from);
-  activeTimeouts.delete(from);
+export const clearUserTimers = (botId: string, from: string) => {
+  const key = `${botId}_${from}`;
+  if (activeReminders.has(key)) clearTimeout(activeReminders.get(key)!);
+  if (activeTimeouts.has(key)) clearTimeout(activeTimeouts.get(key)!);
+  activeReminders.delete(key);
+  activeTimeouts.delete(key);
 };
 
 /* ============================
-    HELPERS & VALIDATORS
+   HELPERS & VALIDATORS
 ============================ */
-const getActiveToken = () => process.env.WHATSAPP_ACCESS_TOKEN || "";
 
 const replaceVariables = (text: string, variables: any) => {
   if (!text) return "";
@@ -50,7 +50,7 @@ const validators: Record<string, (v: string) => boolean> = {
 const isInputNode = (t: string) => t === "input" || t === "menu_button" || t === "menu_list";
 
 /* ============================
-    RETRY & ERROR HANDLER HELPERS
+   RETRY & ERROR HANDLER HELPERS
 ============================ */
 const handleValidationError = async (lead: any, lastNode: any, from: string, phoneId: string, token: string) => {
   const currentRetries = (lead.retry_count || 0) + 1;
@@ -75,11 +75,23 @@ const handleValidationError = async (lead: any, lastNode: any, from: string, pho
 };
 
 /* ============================
-    CORE EXECUTION ENGINE
+   CORE EXECUTION ENGINE
 ============================ */
-export const executeFlowFromNode = async (startNode: any, leadId: number, from: string, nodes: any[], edges: any[], phoneId: string, token: string, botName: string, io: any) => {
-  if (processingLocks.has(from)) return;
-  processingLocks.add(from);
+export const executeFlowFromNode = async (
+  startNode: any, 
+  leadId: number, 
+  botId: string, 
+  from: string, 
+  nodes: any[], 
+  edges: any[], 
+  phoneId: string, 
+  token: string, 
+  botName: string, 
+  io: any
+) => {
+  const lockKey = `${botId}_${from}`;
+  if (processingLocks.has(lockKey)) return;
+  processingLocks.add(lockKey);
 
   try {
     let currentNode = startNode;
@@ -90,7 +102,7 @@ export const executeFlowFromNode = async (startNode: any, leadId: number, from: 
 
     while (currentNode && loop < 25) {
       loop++;
-      console.log(`📍 [Engine] Node Hit: ${currentNode.type} (${currentNode.id})`);
+      console.log(`📍 [Engine][Bot:${botId}] Node Hit: ${currentNode.type} (${currentNode.id})`);
       const data = currentNode.data || {};
       let payload: any = null;
 
@@ -99,8 +111,9 @@ export const executeFlowFromNode = async (startNode: any, leadId: number, from: 
         await query("UPDATE leads SET bot_active = false, human_active = true WHERE id = $1", [leadId]);
         payload = { messaging_product: "whatsapp", to: from, type: "text", text: { body: data.text || "Bot paused. An agent will be with you shortly." } };
         
-        clearUserTimers(from);
-        activeTimeouts.set(from, setTimeout(async () => {
+        clearUserTimers(botId, from);
+        const timerKey = `${botId}_${from}`;
+        activeTimeouts.set(timerKey, setTimeout(async () => {
             await query("UPDATE leads SET human_active = false, bot_active = true, last_node_id = NULL WHERE id = $1", [leadId]);
             const timeoutMsg = "Agent session ended due to inactivity. The bot has resumed.";
             await axios({
@@ -109,19 +122,19 @@ export const executeFlowFromNode = async (startNode: any, leadId: number, from: 
               headers: { Authorization: `Bearer ${token}` }
             }).catch(console.error);
             // Log timeout to DB
-            await query(`INSERT INTO messages (wa_number, message, sender) VALUES ($1, $2, 'system')`, [from, timeoutMsg]);
+            await query(`INSERT INTO messages (bot_id, wa_number, message, sender) VALUES ($1, $2, $3, 'system')`, [botId, from, timeoutMsg]);
         }, AGENT_TIMEOUT_MS));
       }
       else if (currentNode.type === "resume_bot") {
         await query("UPDATE leads SET bot_active = true, human_active = false WHERE id = $1", [leadId]);
         payload = { messaging_product: "whatsapp", to: from, type: "text", text: { body: data.text || "Automation resumed." } };
-        clearUserTimers(from); 
+        clearUserTimers(botId, from); 
       }
       
       // 2. MESSAGING LOGIC
       else if (currentNode.type === "msg_text" || currentNode.type === "input") {
         let text = replaceVariables(data.text || data.label || "...", vars);
-        if (currentNode.type === "input") text += "\n\n_(Type 'reset' to rewrite)_";
+        if (currentNode.type === "input") text += "\n\n_(Type 'reset' to restart)_";
         payload = { messaging_product: "whatsapp", to: from, type: "text", text: { body: text } };
       }
       else if (currentNode.type === "error_handler") {
@@ -190,31 +203,33 @@ export const executeFlowFromNode = async (startNode: any, leadId: number, from: 
           method: "POST", url: `https://graph.facebook.com/v18.0/${phoneId}/messages`,
           data: payload, headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }
         }).catch(console.error);
-        if (io) io.emit("whatsapp_message", { from: from, text: payload.text?.body || "[Interactive Element]", isBot: true });
         
-        // Log bot reply to DB
-        await query(`INSERT INTO messages (wa_number, message, sender) VALUES ($1, $2, 'bot')`, [from, payload.text?.body || "[Interactive Sent]"]);
+        if (io) io.emit("whatsapp_message", { botId, from: from, text: payload.text?.body || "[Interactive Element]", isBot: true });
+        
+        // Log bot reply to DB (Tenant Scoped)
+        await query(`INSERT INTO messages (bot_id, wa_number, message, sender) VALUES ($1, $2, $3, 'bot')`, [botId, from, payload.text?.body || "[Interactive Sent]"]);
       }
 
       await query("UPDATE leads SET last_node_id = $1 WHERE id = $2", [currentNode.id, leadId]);
 
       if (isInputNode(currentNode.type)) {
-        clearUserTimers(from);
+        clearUserTimers(botId, from);
+        const timerKey = `${botId}_${from}`;
         const reminderDelay = (data.reminderDelay || 60) * 1000;
         const timeoutDelay = (data.timeout || 300) * 1000;
 
-        activeReminders.set(from, setTimeout(async () => {
+        activeReminders.set(timerKey, setTimeout(async () => {
           await axios({
             method: "POST", url: `https://graph.facebook.com/v18.0/${phoneId}/messages`,
             data: { messaging_product: "whatsapp", to: from, type: "text", text: { body: data.reminderText || "Are you still there?" } },
             headers: { Authorization: `Bearer ${token}` }
           });
 
-          activeTimeouts.set(from, setTimeout(async () => {
+          activeTimeouts.set(timerKey, setTimeout(async () => {
             const timeoutEdge = edges.find((e: any) => String(e.source) === String(currentNode.id) && String(e.sourceHandle) === "timeout");
             const timeoutNode = nodes.find((n: any) => String(n.id) === String(timeoutEdge?.target));
             if (timeoutNode) {
-                executeFlowFromNode(timeoutNode, leadId, from, nodes, edges, phoneId, token, botName, io);
+                executeFlowFromNode(timeoutNode, leadId, botId, from, nodes, edges, phoneId, token, botName, io);
             } else {
                 await query("UPDATE leads SET last_node_id = NULL, retry_count = 0 WHERE id = $1", [leadId]);
                 await axios({
@@ -234,134 +249,107 @@ export const executeFlowFromNode = async (startNode: any, leadId: number, from: 
   } catch (err: any) {
     console.error("Execute Flow Error:", err.message);
   } finally {
-    processingLocks.delete(from);
+    processingLocks.delete(`${botId}_${from}`);
   }
 };
 
 /* ============================
-    MESSAGE INTAKE (Webhooks)
+   MESSAGE INTAKE (Webhooks)
 ============================ */
-export const processIncomingMessage = async (from: string, waName: string, incomingText: string, buttonId: string, io: any) => {
+// ✅ MULTI-TENANCY: botId injected from webhookController
+export const processIncomingMessage = async (botId: string, from: string, waName: string, incomingText: string, buttonId: string, io: any) => {
   try {
     const text = (incomingText || "").toLowerCase().trim();
-    const token = getActiveToken();
 
-    // 1. Fetch Lead Status
-    const leadCheck = await query("SELECT * FROM leads WHERE wa_number = $1", [from]);
-    let lead = leadCheck.rows[0];
-
-    // 2. Log User Message & Update Timestamps
-    if (text) {
-      await query(`INSERT INTO messages (wa_number, message, sender) VALUES ($1, $2, 'user')`, [from, incomingText]);
-      await query(`UPDATE leads SET last_user_msg_at = NOW(), updated_at = NOW() WHERE wa_number = $1`, [from]);
+    // 1. Fetch Tenant Credentials dynamically from DB
+    const botRes = await query("SELECT id, name, wa_phone_number_id, wa_access_token FROM bots WHERE id = $1 AND status = 'active'", [botId]);
+    const targetBot = botRes.rows[0];
+    
+    if (!targetBot) {
+        console.log(`⚠️ Engine skipped: Bot ${botId} is missing or inactive.`);
+        return;
     }
 
-    // 3. 🚨 THE ESCAPE HATCH (Priority #1)
-    // We check this BEFORE the human guard so users can always end the session.
+    const phoneId = targetBot.wa_phone_number_id;
+    const token = targetBot.wa_access_token;
+
+    if (!phoneId || !token) {
+        console.error(`❌ Engine aborted: Missing Meta credentials for Bot ${botId}`);
+        return;
+    }
+
+    // 2. Fetch Lead Status (Tenant Scoped)
+    const leadCheck = await query("SELECT * FROM leads WHERE wa_number = $1 AND bot_id = $2", [from, botId]);
+    let lead = leadCheck.rows[0];
+
+    // 3. Log User Message & Update Timestamps
+    if (text) {
+      await query(`INSERT INTO messages (bot_id, wa_number, message, sender) VALUES ($1, $2, $3, 'user')`, [botId, from, incomingText]);
+      if (lead) {
+          await query(`UPDATE leads SET last_user_msg_at = NOW(), updated_at = NOW() WHERE id = $1`, [lead.id]);
+      }
+    }
+
+    // 4. 🚨 THE ESCAPE HATCH (Priority #1)
     if (ESCAPE_KEYWORDS.includes(text)) {
-      clearUserTimers(from);
+      clearUserTimers(botId, from);
       
-      // Reset lead to bot mode
-      await query(`
-        UPDATE leads 
-        SET last_node_id = NULL, 
-            retry_count = 0, 
-            human_active = false, 
-            bot_active = true 
-        WHERE wa_number = $1`, [from]);
+      if (lead) {
+        await query(`
+          UPDATE leads 
+          SET last_node_id = NULL, retry_count = 0, human_active = false, bot_active = true 
+          WHERE id = $1`, [lead.id]);
+      }
         
-      const endMsg = "Conversation ended. Type 'hi' to start again.";
+      const endMsg = "Conversation ended. Type a greeting to start again.";
       
-      // Notify WhatsApp
       await axios({
-        method: "POST", 
-        url: `https://graph.facebook.com/v18.0/${DEFAULT_PHONE_ID}/messages`,
+        method: "POST", url: `https://graph.facebook.com/v18.0/${phoneId}/messages`,
         data: { messaging_product: "whatsapp", to: from, type: "text", text: { body: endMsg } },
         headers: { Authorization: `Bearer ${token}` }
       });
 
-      // Log System Message for Dashboard History
       const systemMsg = "User forcibly ended the conversation.";
-      await query(`INSERT INTO messages (wa_number, message, sender) VALUES ($1, $2, 'system')`, [from, systemMsg]);
+      await query(`INSERT INTO messages (bot_id, wa_number, message, sender) VALUES ($1, $2, $3, 'system')`, [botId, from, systemMsg]);
 
-      // Instant Update for Frontend Dashboard
-      if (io) {
-        io.emit("whatsapp_message", { from, text: systemMsg, isBot: true, sender: "system" });
-      }
+      if (io) io.emit("whatsapp_message", { botId, from, text: systemMsg, isBot: true, sender: "system" });
       return; 
     }
 
-    // 4. 👤 HUMAN MODE GUARD (Priority #2)
-    // Bot stays silent if agent is active, unless it was an escape keyword (checked above).
+    // 5. 👤 HUMAN MODE GUARD (Priority #2)
     if (lead?.human_active && text !== "reset") {
-      console.log(`👤 [Engine] Human is active for ${from}. Bot ignoring input.`);
+      console.log(`👤 [Engine][Bot:${botId}] Human active for ${from}. Bot ignoring.`);
       return; 
     }
 
-    // 5. RESET LOGIC
-    if (text === "reset") {
-       await query("UPDATE leads SET last_node_id = NULL, retry_count = 0, human_active = false, bot_active = true WHERE wa_number = $1", [from]);
+    // 6. RESET LOGIC
+    if (text === "reset" && lead) {
+       await query("UPDATE leads SET last_node_id = NULL, retry_count = 0, human_active = false, bot_active = true WHERE id = $1", [lead.id]);
        return; 
     }
 
+    clearUserTimers(botId, from);
 
-    const activeBotsRes = await query("SELECT * FROM bots WHERE status = 'active'");
-    const activeBots = activeBotsRes.rows;
-    if (!activeBots.length) return;
-
-    clearUserTimers(from);
-
-    let targetBot = null;
-    let flowData = null;
-    let triggerNode = null;
-    const isReset = RESET_KEYWORDS.includes(text);
-
-    if (buttonId?.startsWith("select_bot_")) {
-      const selectedId = buttonId.replace("select_bot_", "");
-      await query("UPDATE leads SET bot_id = $1, last_node_id = NULL, retry_count = 0, human_active = false WHERE wa_number = $2", [selectedId, from]);
-      return processIncomingMessage(from, waName, "start", "", io); 
+    // 7. Ensure Lead Exists
+    if (!lead) {
+        const leadInsert = await query(
+            `INSERT INTO leads(bot_id, wa_number, wa_name, variables, updated_at) 
+             VALUES($1,$2,$3,'{}',NOW()) RETURNING *`, 
+            [botId, from, waName]
+        );
+        lead = leadInsert.rows[0];
     }
 
-    if (lead?.bot_id && !isReset) targetBot = activeBots.find((b: any) => String(b.id) === String(lead.bot_id));
-
-    if (!targetBot || isReset) {
-      const matched = [];
-      for (const b of activeBots) {
-        const fRes = await query("SELECT flow_json FROM flows WHERE bot_id = $1", [b.id]);
-        const flow = fRes.rows[0]?.flow_json || { nodes: [], edges: [] };
-        const hasKwd = b.trigger_keywords?.split(",").map((k:string)=>k.trim().toLowerCase()).includes(text);
-        const tNode = flow.nodes?.find((n:any) => n.type === "trigger" && n.data?.keywords?.split(",").map((k:string)=>k.trim().toLowerCase()).includes(text));
-
-        if (hasKwd || tNode) matched.push({ bot: b, flow, tNode });
-      }
-
-      if (matched.length > 0) {
-        targetBot = matched[0].bot;
-        flowData = matched[0].flow;
-        triggerNode = matched[0].tNode;
-        if (lead) await query("UPDATE leads SET last_node_id = NULL, variables = '{}', human_active = false, bot_active = true, retry_count = 0 WHERE id = $1", [lead.id]);
-      }
-    }
-
-    if (!targetBot) return;
-
-    const leadRes = await query(
-      `INSERT INTO leads(bot_id, wa_number, wa_name, variables, updated_at) 
-       VALUES($1,$2,$3,'{}',NOW()) ON CONFLICT(wa_number) 
-       DO UPDATE SET bot_id = $1, wa_name=$3, updated_at=NOW() RETURNING *`, 
-      [targetBot.id, from, waName]
-    );
-    lead = leadRes.rows[0];
-
-    if (!flowData) {
-      const fRes = await query("SELECT flow_json FROM flows WHERE bot_id = $1", [targetBot.id]);
-      flowData = fRes.rows[0]?.flow_json || { nodes: [], edges: [] };
-    }
-
+    // 8. Fetch Flow Logic
+    const fRes = await query("SELECT flow_json FROM flows WHERE bot_id = $1", [botId]);
+    const flowData = fRes.rows[0]?.flow_json || { nodes: [], edges: [] };
     const nodes = flowData.nodes || [];
     const edges = flowData.edges || [];
+    
     let currentNode = null;
+    const isReset = RESET_KEYWORDS.includes(text);
 
+    // 9. Process Current Node State
     if (lead.last_node_id && !isReset) {
       const lastNode = nodes.find((n: any) => String(n.id) === String(lead.last_node_id));
       
@@ -384,11 +372,11 @@ export const processIncomingMessage = async (from: string, waName: string, incom
         }
 
         if (!isValid) {
-          const nextStep = await handleValidationError(lead, lastNode, from, DEFAULT_PHONE_ID, token);
+          const nextStep = await handleValidationError(lead, lastNode, from, phoneId, token);
           if (nextStep === "stay") return;
           if (nextStep) {
              const targetNode = nodes.find((n:any) => String(n.id) === String(nextStep));
-             if (targetNode) return executeFlowFromNode(targetNode, lead.id, from, nodes, edges, DEFAULT_PHONE_ID, token, targetBot.name, io);
+             if (targetNode) return executeFlowFromNode(targetNode, lead.id, botId, from, nodes, edges, phoneId, token, targetBot.name, io);
           }
           return;
         }
@@ -411,18 +399,31 @@ export const processIncomingMessage = async (from: string, waName: string, incom
       }
     }
 
-    if (!currentNode && (triggerNode || isReset || !lead.last_node_id)) {
-      const entryNode = triggerNode || nodes.find((n: any) => n.type === "start");
-      if (entryNode) {
-        const edge = edges.find((e: any) => String(e.source) === String(entryNode.id));
-        if (edge) currentNode = nodes.find((n: any) => String(n.id) === String(edge.target));
-        else if (entryNode.type !== "start" && entryNode.type !== "trigger") currentNode = entryNode;
-      }
+    // 10. Fallback: Find Trigger or Start Node
+    if (!currentNode || isReset) {
+        // Attempt keyword match first
+        currentNode = nodes.find((n:any) => n.type === "trigger" && n.data?.keywords?.split(",").map((k:string)=>k.trim().toLowerCase()).includes(text));
+        
+        // Fallback to generic start
+        if (!currentNode) {
+            const entryNode = nodes.find((n: any) => n.type === "start");
+            if (entryNode) {
+                const edge = edges.find((e: any) => String(e.source) === String(entryNode.id));
+                if (edge) currentNode = nodes.find((n: any) => String(n.id) === String(edge.target));
+            }
+        }
+        
+        if (currentNode) {
+           await query("UPDATE leads SET last_node_id = NULL, variables = '{}', human_active = false, bot_active = true, retry_count = 0 WHERE id = $1", [lead.id]);
+        }
     }
 
-    if (currentNode) await executeFlowFromNode(currentNode, lead.id, from, nodes, edges, DEFAULT_PHONE_ID, token, targetBot.name, io);
+    // 11. Execute Remaining Flow
+    if (currentNode) {
+        await executeFlowFromNode(currentNode, lead.id, botId, from, nodes, edges, phoneId, token, targetBot.name, io);
+    }
 
   } catch (err: any) { 
-      console.error("🔥 [Critical] ENGINE ERROR:", err.message); 
+      console.error(`🔥 [Critical][Bot:${botId}] ENGINE ERROR:`, err.message); 
   }
 };

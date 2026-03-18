@@ -80,7 +80,9 @@ const handleProcessMessage =
     } = payload;
 
 
+    // ✅ Scoped to botId for multi-tenancy safety
     let state = await getState(
+      botId,
       conversationId
     );
 
@@ -125,7 +127,7 @@ const handleProcessMessage =
 
 
     await logEvent({
-      botId,
+      botId, // ✅ Scoped log
       conversationId,
       type: "process_message",
     });
@@ -141,8 +143,10 @@ const handleAIResponse =
     } = payload;
 
 
+    // ✅ Scoped to botId for multi-tenancy safety
     const state =
       await getState(
+        botId,
         conversationId
       );
 
@@ -178,7 +182,7 @@ const handleAIResponse =
 
 
     await logEvent({
-      botId,
+      botId, // ✅ Scoped log
       conversationId,
       type: "ai_response",
     });
@@ -196,6 +200,7 @@ const handleSendResponse =
     }
 
     await logEvent({
+      botId: payload.botId, // ✅ Added botId from payload
       type:
         "send_response",
     });
@@ -211,6 +216,7 @@ const handleAnalytics =
 const handleAgentHandoff =
   async (payload: any) => {
     await logEvent({
+      botId: payload.botId, // ✅ Added botId from payload
       type:
         "agent_handoff",
       data: payload,

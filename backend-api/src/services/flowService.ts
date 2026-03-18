@@ -61,8 +61,6 @@ export async function saveFlowService(botId: string, userId: string, flowJson: a
   return createFlow(botId, flowJson);
 }
 
-// ... updateFlowService and deleteFlowService remain same logic ...
-
 export async function updateFlowService(id: string, userId: string, flowJson: any) {
   const flow = await findFlowById(id);
   if (!flow) throw { status: 404 };
@@ -70,7 +68,8 @@ export async function updateFlowService(id: string, userId: string, flowJson: an
   const bot = await findBotById(flow.bot_id);
   if (!bot || bot.user_id !== userId) throw { status: 404 };
 
-  return updateFlow(id, flowJson);
+  // ✅ Pass validated bot.id to model for strict execution boundary
+  return updateFlow(id, bot.id, flowJson);
 }
 
 export async function deleteFlowService(id: string, userId: string) {
@@ -80,5 +79,6 @@ export async function deleteFlowService(id: string, userId: string) {
   const bot = await findBotById(flow.bot_id);
   if (!bot || bot.user_id !== userId) throw { status: 404 };
 
-  await deleteFlow(id);
+  // ✅ Pass validated bot.id to model for strict execution boundary
+  await deleteFlow(id, bot.id);
 }

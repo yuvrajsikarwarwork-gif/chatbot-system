@@ -44,26 +44,29 @@ export async function createFlow(
 
 export async function updateFlow(
   id: string,
+  botId: string, // ✅ Added tenant scope
   flowJson: any
 ) {
   const flowJsonStr = JSON.stringify(flowJson || { nodes: [], edges: [] });
 
+  // ✅ DB-level tenant scoping enforced
   const res = await query(
     `
     UPDATE flows
     SET flow_json = $1::jsonb
-    WHERE id = $2
+    WHERE id = $2 AND bot_id = $3
     RETURNING *
     `,
-    [flowJsonStr, id]
+    [flowJsonStr, id, botId]
   );
 
   return res.rows[0];
 }
 
-export async function deleteFlow(id: string) {
+export async function deleteFlow(id: string, botId: string) { // ✅ Added tenant scope
+  // ✅ DB-level tenant scoping enforced
   await query(
-    "DELETE FROM flows WHERE id = $1",
-    [id]
+    "DELETE FROM flows WHERE id = $1 AND bot_id = $2",
+    [id, botId]
   );
 }

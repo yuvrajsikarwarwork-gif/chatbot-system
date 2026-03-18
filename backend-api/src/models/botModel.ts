@@ -25,6 +25,7 @@ export async function createBot(userId: string, name: string) {
 
 export async function updateBot(
   id: string,
+  userId: string,
   data: {
     name?: string;
     wa_phone_number_id?: string;
@@ -34,6 +35,7 @@ export async function updateBot(
   }
 ) {
   // ✅ The ::text casting prevents type-mismatch errors when passing nulls for UUID or JSON fields.
+  // ✅ Scoped to user_id to prevent cross-tenant data mutation.
   const res = await query(
     `
     UPDATE bots
@@ -44,7 +46,7 @@ export async function updateBot(
       trigger_keywords = CASE WHEN $4::text IS NOT NULL THEN $4 ELSE trigger_keywords END,
       status = CASE WHEN $5::text IS NOT NULL THEN $5 ELSE status END,
       updated_at = CURRENT_TIMESTAMP
-    WHERE id = $6
+    WHERE id = $6 AND user_id = $7
     RETURNING *
     `,
     [
@@ -53,12 +55,14 @@ export async function updateBot(
       data.wa_access_token !== undefined ? data.wa_access_token : null,
       data.trigger_keywords !== undefined ? data.trigger_keywords : null,
       data.status !== undefined ? data.status : null, 
-      id
+      id,
+      userId
     ]
   );
   return res.rows[0];
 }
 
-export async function deleteBot(id: string) {
-  await query("DELETE FROM bots WHERE id = $1", [id]);
+export async function deleteBot(id: string, userId: string) {
+  // ✅ Scoped to user_id to prevent cross-tenant data deletion.
+  await query("DELETE FROM bots WHERE id = $1 AND user_id = $2", [id, userId]);
 }

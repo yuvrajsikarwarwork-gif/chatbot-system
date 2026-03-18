@@ -1,16 +1,21 @@
 import { Router } from "express";
 import { 
-  getInboxLeads, 
-  sendAgentMessage, 
-  resumeBotManually,
-  getChatHistory 
+  getTickets, 
+  createTicket, 
+  closeTicket, 
+  replyToTicket 
 } from "../controllers/agentController";
+import { authMiddleware } from "../middleware/authMiddleware";
 
 const router = Router();
 
-router.get("/leads", getInboxLeads);
-router.get("/messages/:wa_number", getChatHistory); // ✅ New History Route
-router.post("/send", sendAgentMessage);
-router.post("/resume", resumeBotManually); 
+// ✅ Use authMiddleware to protect all agent routes
+router.use(authMiddleware);
+
+// ✅ Routes updated to match controller exports
+router.get("/tickets/:botId", getTickets);
+router.post("/tickets", createTicket);
+router.post("/tickets/:ticketId/close", closeTicket);
+router.post("/tickets/:ticketId/reply", replyToTicket);
 
 export default router;

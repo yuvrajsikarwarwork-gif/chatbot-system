@@ -4,16 +4,19 @@ import { query } from "../adapters/dbAdapter";
 
 
 export const getState = async (
+  botId: string, // ✅ Added tenant scope
   conversationId: string
 ) => {
+  // ✅ DB-level verification: JOIN ensures the state belongs to the bot tenant
   const res = await query(
     `
-    SELECT *
-    FROM conversation_state
-    WHERE conversation_id = $1
+    SELECT s.*
+    FROM conversation_state s
+    JOIN conversations c ON s.conversation_id = c.id
+    WHERE s.conversation_id = $1 AND c.bot_id = $2
     LIMIT 1
     `,
-    [conversationId]
+    [conversationId, botId]
   );
 
   return res.rows[0] || null;

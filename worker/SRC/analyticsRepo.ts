@@ -36,18 +36,21 @@ export const logEvent = async (
 
 export const logError = async (
   jobId: string,
+  botId: string | null, // ✅ Added botId context
   error: any
 ) => {
   await query(
     `
     INSERT INTO analytics_events (
+      bot_id, // ✅ Scoped log entry
       event_type,
       data_json,
       created_at
     )
-    VALUES ($1, $2, NOW())
+    VALUES ($1, $2, $3, NOW())
     `,
     [
+      botId,
       "worker_error",
       JSON.stringify({
         jobId,

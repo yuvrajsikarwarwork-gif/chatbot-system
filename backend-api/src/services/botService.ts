@@ -54,11 +54,14 @@ export const updateBotService = async (id: string, userId: string, updateData: a
     status: updateData.status ?? bot.status // ✅ Added Status Logic
   };
 
-  return updateBot(id, payload);
+  // ✅ Passing userId down to the model to strictly enforce tenant scoping
+  return updateBot(id, userId, payload);
 };
 
 export const deleteBotService = async (id: string, userId: string) => {
   const bot = await findBotById(id);
   if (!bot || bot.user_id !== userId) throw { status: 404, message: "Unauthorized" };
-  await deleteBot(id);
+  
+  // ✅ Passing userId down to the model to strictly enforce tenant scoping
+  await deleteBot(id, userId);
 };

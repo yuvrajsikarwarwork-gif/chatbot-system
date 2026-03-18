@@ -14,11 +14,10 @@ export async function getBotStats(
   next: NextFunction
 ) {
   try {
-    const data =
-      await getBotStatsService(
-        req.params.botId,
-        req.user.user_id
-      );
+    const data = await getBotStatsService(
+      req.params.botId,
+      req.user!.id // ✅ Fixed: user_id -> id
+    );
 
     res.json(data);
   } catch (err) {
@@ -32,11 +31,10 @@ export async function getEvents(
   next: NextFunction
 ) {
   try {
-    const data =
-      await getEventsService(
-        req.params.botId,
-        req.user.user_id
-      );
+    const data = await getEventsService(
+      req.params.botId,
+      req.user!.id // ✅ Fixed: user_id -> id
+    );
 
     res.json(data);
   } catch (err) {
