@@ -1,16 +1,18 @@
 import React, { useState } from "react";
 import MessageList from "./MessageList";
-import { CheckCircle2, Send, User, Bot } from "lucide-react";
-import { Message, Conversation, messageService } from "../../services/messageService";
+import { CheckCircle2, Send, User, Bot, Loader2 } from "lucide-react";
+import apiClient from "../../services/apiClient"; // ✅ Use apiClient directly
 
 interface ChatWindowProps {
-  messages: Message[];
-  activeConversation: Conversation | null;
-  onResumeBot?: (conversation: Conversation) => void;
+  messages: any[];
+  activeConversation: any;
+  onResumeBot: () => void;
+  onMessageSent: (msg: any) => void;
 }
 
-export default function ChatWindow({ messages, activeConversation, onResumeBot }: ChatWindowProps) {
+export default function ChatWindow({ messages, activeConversation, onResumeBot, onMessageSent }: ChatWindowProps) {
   const [inputValue, setInputValue] = useState("");
+  const [isSending, setIsSending] = useState(false);
 
   if (!activeConversation) {
     return (
@@ -23,18 +25,38 @@ export default function ChatWindow({ messages, activeConversation, onResumeBot }
   }
 
   const handleSend = async () => {
-    if (!inputValue.trim()) return;
+    if (!inputValue.trim() || isSending) return;
+    setIsSending(true);
 
     try {
-      await messageService.sendWhatsApp(activeConversation.user_identifier, inputValue);
+      // ✅ Matches agentController.ts -> sendAgentMessage
+      await apiClient.post("/chat/send", {
+        wa_number: activeConversation.wa_number,
+        message: inputValue
+      });
+      
+      // Instantly show the message in the UI
+      onMessageSent({ text: inputValue, isBot: false, from: "Agent" });
       setInputValue(""); 
     } catch (error) {
       console.error("Failed to send message");
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const handleResume = async () => {
+    try {
+      // ✅ Matches agentController.ts -> resumeBotManually
+      await apiClient.post("/chat/resume", { wa_number: activeConversation.wa_number });
+      onResumeBot();
+    } catch (err) {
+      console.error("Failed to resume bot");
     }
   };
 
   return (
-    <div className="flex-1 flex flex-col bg-slate-50 relative">
+    <div className="flex-1 flex flex-col bg-slate-50 relative h-full">
       {/* Header */}
       <div className="bg-white p-4 border-b border-slate-200 flex justify-between items-center shadow-sm z-10 shrink-0">
         <div className="flex items-center gap-3">
@@ -43,13 +65,13 @@ export default function ChatWindow({ messages, activeConversation, onResumeBot }
           </div>
           <div>
             <h3 className="font-bold text-slate-800">{activeConversation.wa_name || "User"}</h3>
-            <p className="text-xs text-slate-500 font-mono">{activeConversation.user_identifier}</p>
+            <p className="text-xs text-slate-500 font-mono">{activeConversation.wa_number}</p>
           </div>
         </div>
 
-        {activeConversation.human_active && onResumeBot && (
+        {activeConversation.human_active && (
           <button 
-            onClick={() => onResumeBot(activeConversation)}
+            onClick={handleResume}
             className="flex items-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all shadow-sm active:scale-95"
           >
             <CheckCircle2 size={16} /> Resolve & Resume Bot
@@ -75,10 +97,11 @@ export default function ChatWindow({ messages, activeConversation, onResumeBot }
               className="flex-1 border-2 border-slate-200 bg-slate-50 focus:bg-white rounded-xl p-3 text-sm focus:border-blue-500 outline-none transition-all"
             />
             <button 
+              disabled={isSending}
               onClick={handleSend}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-6 rounded-xl flex items-center justify-center transition-all shadow-md active:scale-95"
+              className="bg-blue-600 hover:bg-blue-700 text-white px-6 rounded-xl flex items-center justify-center transition-all shadow-md active:scale-95 disabled:opacity-50"
             >
-              <Send size={18} />
+              {isSending ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
             </button>
           </div>
         ) : (

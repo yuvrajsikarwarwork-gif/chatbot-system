@@ -1,61 +1,84 @@
-import { useEffect, useState } from "react";
-import DashboardLayout from "../components/layout/DashboardLayout";
-import ConversationList from "../components/chat/ConversationList";
-import ChatWindow from "../components/chat/ChatWindow";
-import { messageService, Conversation, Message } from "../services/messageService";
-import { useBotStore } from "../store/botStore";
+import React, { useState, useEffect } from 'react';
+import DashboardLayout from '../components/layout/DashboardLayout';
+import ConversationList from '../components/chat/ConversationList';
+import ChatWindow from '../components/chat/ChatWindow';
+import apiClient from '../services/apiClient';
+import { io, Socket } from 'socket.io-client';
 
 export default function ConversationsPage() {
-  const botId = useBotStore((s) => s.selectedBotId);
+  const [conversations, setConversations] = useState<any[]>([]);
+  const [activeConversation, setActiveConversation] = useState<any>(null);
+  const [messages, setMessages] = useState<any[]>([]); 
+  const [socket, setSocket] = useState<Socket | null>(null);
 
-  const [list, setList] = useState<Conversation[]>([]);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [active, setActive] = useState<Conversation | null>(null);
-
-  const load = async () => {
-    if (!botId) return;
-
+  const fetchConversations = async () => {
     try {
-      const data = await messageService.getConversations(botId);
-      setList(data);
+      const res = await apiClient.get('/leads'); 
+      setConversations(Array.isArray(res.data) ? res.data : []);
     } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const open = async (c: Conversation) => {
-    setActive(c);
-
-    try {
-      const msgs = await messageService.getMessages(c.id);
-      setMessages(msgs);
-    } catch (err) {
-      console.error(err);
+      console.error("Failed to load conversations:", err);
+      setConversations([]);
     }
   };
 
   useEffect(() => {
-    load();
-  }, [botId]);
+    fetchConversations();
+
+    const newSocket = io(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000');
+    setSocket(newSocket);
+
+    newSocket.on('whatsapp_message', (msg: any) => {
+      console.log("Real-time message received:", msg);
+      setMessages(prev => [...prev, msg]);
+    });
+
+    return () => {
+      newSocket.disconnect();
+    };
+  }, []);
+
+  const handleSelectConversation = (convo: any) => {
+    setActiveConversation(convo);
+    setMessages([]); 
+  };
+
+  const handleResumeBot = () => {
+    fetchConversations(); 
+    setActiveConversation((prev: any) => ({ ...prev, human_active: false }));
+  };
+
+  const handleMessageSent = (msg: any) => {
+    setMessages(prev => [...prev, msg]);
+  };
 
   return (
-    <DashboardLayout>
-      <div className="max-w-6xl mx-auto h-full flex flex-col">
-        <h1 className="text-2xl font-bold text-gray-900 mb-6">
-          Conversations
-        </h1>
+    <DashboardLayout title="Live Chat Inbox">
+      <div className="flex h-[calc(100vh-100px)] bg-white rounded-3xl shadow-xl border border-slate-200 overflow-hidden mx-6 mb-6">
+        
+        <div className="w-1/3 border-r border-slate-100 flex flex-col bg-slate-50">
+          <div className="p-5 border-b border-slate-200 bg-white">
+            <h2 className="text-lg font-black text-slate-900 uppercase tracking-tight">Active Chats</h2>
+            <p className="text-xs text-slate-500 font-medium mt-1">Manage bot handoffs and human support</p>
+          </div>
+          
+          <div className="flex-1 overflow-y-auto">
+            <ConversationList 
+              list={conversations} 
+              activeId={activeConversation?.id}
+              onSelect={handleSelectConversation} 
+            />
+          </div>
+        </div>
 
-        <div className="flex flex-1 min-h-[600px] bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
-          <ConversationList 
-            list={list} 
-            onSelect={open} 
-          />
-
+        <div className="flex-1 flex flex-col bg-slate-50/50 relative">
           <ChatWindow 
-            messages={messages} 
-            activeConversation={active}
+            messages={messages}
+            activeConversation={activeConversation} 
+            onResumeBot={handleResumeBot}
+            onMessageSent={handleMessageSent}
           />
         </div>
+
       </div>
     </DashboardLayout>
   );

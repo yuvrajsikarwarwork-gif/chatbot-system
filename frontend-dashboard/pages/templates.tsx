@@ -6,6 +6,7 @@ import {
   Smartphone, Mail, Send, X, Globe, AlignLeft, LayoutTemplate,
   Users, CheckCircle, AlertCircle, Clock, BarChart3, Activity, Eye, ShieldCheck, ShieldAlert, Timer
 } from "lucide-react";
+import CampaignSenderModal from "../components/campaign/CampaignSenderModal";
 
 export default function TemplatesPage() {
   const [activeView, setActiveView] = useState<"templates" | "campaigns">("templates");
@@ -15,6 +16,7 @@ export default function TemplatesPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedPlatform, setSelectedPlatform] = useState("whatsapp");
   
+  const [isCampaignModalOpen, setIsCampaignModalOpen] = useState(false);
   const [isPanelOpen, setIsPanelOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   
@@ -67,8 +69,14 @@ export default function TemplatesPage() {
     try {
       const res = await apiClient.get(`/templates?platform=${selectedPlatform}`);
       setTemplates(res.data);
-      const logs = await apiClient.get(`/template-logs?platform=${selectedPlatform}`);
-      setCampaignLogs(logs.data || []);
+      
+      // Safely fetch logs (won't crash if the table is empty or missing yet)
+      try {
+        const logs = await apiClient.get(`/template-logs?platform=${selectedPlatform}`);
+        setCampaignLogs(logs.data || []);
+      } catch (logErr) {
+        setCampaignLogs([]);
+      }
     } catch (err) { console.error(err); } finally { setIsLoading(false); }
   };
 
@@ -120,10 +128,22 @@ export default function TemplatesPage() {
                 {activeView === 'templates' ? 'Design and manage omnichannel templates.' : 'Real-time tracking of bulk delivery performance.'}
               </p>
             </div>
+            
             {activeView === 'templates' && (
-              <button onClick={() => { setFormData({ ...defaultForm, platform_type: selectedPlatform }); setIsPanelOpen(true); }} className="flex items-center gap-2 bg-blue-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm hover:bg-blue-700 transition-all shadow-lg shadow-blue-200">
-                <Plus size={18} /> Create Template
-              </button>
+              <div className="flex items-center gap-3">
+                <button 
+                  onClick={() => setIsCampaignModalOpen(true)} 
+                  className="flex items-center gap-2 bg-slate-900 text-white px-5 py-2.5 rounded-xl font-bold text-sm hover:bg-black transition-all shadow-lg"
+                >
+                  <Send size={18} /> Launch Campaign
+                </button>
+                <button 
+                  onClick={() => { setFormData({ ...defaultForm, platform_type: selectedPlatform }); setIsPanelOpen(true); }} 
+                  className="flex items-center gap-2 bg-blue-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm hover:bg-blue-700 transition-all shadow-lg shadow-blue-200"
+                >
+                  <Plus size={18} /> Create Template
+                </button>
+              </div>
             )}
           </div>
 
@@ -172,26 +192,82 @@ export default function TemplatesPage() {
                       </td>
                     </tr>
                   ))}
+                  {templates.length === 0 && (
+                    <tr>
+                      <td colSpan={4} className="px-6 py-8 text-center text-slate-500 text-sm">No templates found for this platform.</td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
           ) : (
-            <>
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                  <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Total Broadcasted</span>
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Total Broadcasts</span>
                     <div className="flex items-center justify-between">
                       <div className="text-2xl font-black text-slate-900">{campaignLogs.length}</div>
-                      <BarChart3 className="text-blue-500" size={20} />
+                      <div className="p-2 bg-blue-50 text-blue-600 rounded-lg"><BarChart3 size={20} /></div>
                     </div>
                  </div>
-                 {/* ... (Other analytics cards remain same) */}
+                 <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Delivered</span>
+                    <div className="flex items-center justify-between">
+                      <div className="text-2xl font-black text-emerald-600">{campaignLogs.reduce((acc, curr) => acc + (curr.success_count || 0), 0)}</div>
+                      <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg"><CheckCircle size={20} /></div>
+                    </div>
+                 </div>
               </div>
-              {/* ... (Campaign Table remains same) */}
-            </>
+
+              <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+                <table className="w-full text-left border-collapse">
+                  <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-black uppercase text-slate-400 tracking-widest">
+                    <tr>
+                      <th className="px-6 py-4">Campaign / Template</th>
+                      <th className="px-6 py-4">Target Leads</th>
+                      <th className="px-6 py-4">Performance</th>
+                      <th className="px-6 py-4">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {campaignLogs.map((log: any) => (
+                      <tr key={log.id} className="hover:bg-slate-50/80 transition-colors">
+                        <td className="px-6 py-4">
+                          <div className="font-bold text-slate-900 text-sm">{log.campaign_name || 'Quick Blast'}</div>
+                          <div className="text-[10px] text-slate-400 font-mono italic">{log.template_name}</div>
+                        </td>
+                        <td className="px-6 py-4 text-xs font-bold text-slate-600">
+                          {log.total_leads || 0} Leads
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-2">
+                            <div className="w-24 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                              <div 
+                                className="h-full bg-blue-500" 
+                                style={{ width: `${((log.success_count || 0) / (log.total_leads || 1)) * 100}%` }}
+                              />
+                            </div>
+                            <span className="text-[10px] font-black text-slate-500">{log.success_count || 0} / {log.total_leads || 0}</span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                           <span className="px-2 py-1 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded text-[9px] font-black uppercase">Completed</span>
+                        </td>
+                      </tr>
+                    ))}
+                    {campaignLogs.length === 0 && (
+                      <tr>
+                        <td colSpan={4} className="px-6 py-8 text-center text-slate-500 text-sm">No campaigns launched yet.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           )}
         </div>
 
+        {/* Create/Edit Template Panel */}
         <div className={`fixed top-0 right-0 h-full w-[450px] bg-white border-l border-slate-200 shadow-2xl transition-transform duration-300 z-50 flex flex-col ${isPanelOpen ? 'translate-x-0' : 'translate-x-full'}`}>
           <div className="p-6 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
             <h2 className="text-lg font-black text-slate-900 uppercase tracking-tight">Configure Template</h2>
@@ -295,6 +371,14 @@ export default function TemplatesPage() {
             </button>
           </div>
         </div>
+
+        {/* Modal */}
+        <CampaignSenderModal 
+          isOpen={isCampaignModalOpen} 
+          onClose={() => setIsCampaignModalOpen(false)} 
+          templates={templates} 
+        />
+        
       </div>
     </DashboardLayout>
   );
