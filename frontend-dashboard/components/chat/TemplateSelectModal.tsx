@@ -1,0 +1,62 @@
+import React, { useEffect, useState } from 'react';
+import apiClient from '../../services/apiClient';
+import { X, Send, Loader2 } from 'lucide-react';
+
+export default function TemplateSelectModal({ isOpen, onClose, waNumber, onSent }: any) {
+  const [templates, setTemplates] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      // Fetches templates from your existing templateRoutes
+      apiClient.get('/templates').then(res => setTemplates(res.data)).catch(console.error);
+    }
+  }, [isOpen]);
+
+  const handleSendTemplate = async (templateName: string) => {
+    setLoading(true);
+    try {
+      // Assuming your backend has an endpoint to send templates
+      await apiClient.post('/chat/send-template', { wa_number: waNumber, template_name: templateName });
+      onSent();
+      onClose();
+    } catch (err) {
+      alert("Failed to send template. Ensure backend endpoint exists.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
+        <div className="p-4 border-b flex justify-between items-center bg-slate-50">
+          <h3 className="font-bold text-slate-800">Select Re-engagement Template</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X size={20}/></button>
+        </div>
+        <div className="p-4 space-y-3 max-h-[400px] overflow-y-auto bg-slate-100">
+          {templates.length === 0 ? (
+             <p className="text-sm text-center text-slate-500 py-4">No approved templates found.</p>
+          ) : (
+            templates.map(t => (
+              <button 
+                key={t.id}
+                disabled={loading}
+                onClick={() => handleSendTemplate(t.name)}
+                className="w-full text-left p-4 border border-slate-200 bg-white rounded-xl hover:border-emerald-400 hover:shadow-md transition-all group"
+              >
+                <div className="flex justify-between items-start mb-2">
+                  <p className="font-black text-xs uppercase tracking-wider text-emerald-600">{t.name}</p>
+                  <Send size={14} className="text-slate-300 group-hover:text-emerald-500" />
+                </div>
+                <p className="text-sm text-slate-600 leading-snug">{t.body_text}</p>
+              </button>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -1,7 +1,8 @@
 import React, { useState } from "react";
 import MessageList from "./MessageList";
-import { CheckCircle2, Send, User, Bot, Loader2 } from "lucide-react";
+import { CheckCircle2, Send, User, Bot, Loader2, FolderOpen } from "lucide-react";
 import apiClient from "../../services/apiClient"; 
+import TemplateSelectModal from "./TemplateSelectModal";
 
 interface ChatWindowProps {
   messages: any[];
@@ -10,27 +11,86 @@ interface ChatWindowProps {
   onMessageSent: (msg: any) => void;
 }
 
+// 🎨 Omni-Channel Theme Configuration
+const platformThemes: Record<string, any> = {
+  whatsapp: {
+    containerBg: "bg-[#efeae2]",
+    pattern: "url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png')",
+    headerBg: "bg-[#f0f2f5]",
+    headerText: "text-slate-800",
+    headerSubText: "text-slate-500",
+    inputBg: "bg-[#f0f2f5]",
+    buttonColor: "bg-emerald-500 hover:bg-emerald-600 text-white",
+    botNoticeBg: "bg-[#e1f5fe] border-blue-100 text-blue-800",
+    has24HourRule: true
+  },
+  instagram: {
+    containerBg: "bg-slate-50",
+    pattern: "none",
+    headerBg: "bg-gradient-to-r from-purple-500 via-pink-500 to-orange-400",
+    headerText: "text-white",
+    headerSubText: "text-white/80",
+    inputBg: "bg-white border-t border-slate-200",
+    buttonColor: "bg-gradient-to-r from-purple-500 to-pink-500 hover:opacity-90 text-white",
+    botNoticeBg: "bg-purple-50 border-purple-100 text-purple-800",
+    has24HourRule: true
+  },
+  facebook: {
+    containerBg: "bg-white",
+    pattern: "none",
+    headerBg: "bg-white border-b border-gray-200",
+    headerText: "text-slate-800",
+    headerSubText: "text-slate-500",
+    inputBg: "bg-gray-50 border-t border-gray-200",
+    buttonColor: "bg-[#0084ff] hover:bg-[#0073e6] text-white",
+    botNoticeBg: "bg-blue-50 border-blue-100 text-blue-800",
+    has24HourRule: true
+  },
+  website: {
+    containerBg: "bg-slate-50",
+    pattern: "none",
+    headerBg: "bg-slate-900",
+    headerText: "text-white",
+    headerSubText: "text-gray-300",
+    inputBg: "bg-white border-t border-slate-200",
+    buttonColor: "bg-slate-800 hover:bg-slate-900 text-white",
+    botNoticeBg: "bg-slate-200 border-slate-300 text-slate-800",
+    has24HourRule: false // 🔓 Websites don't have a 24-hour rule!
+  }
+};
+
 export default function ChatWindow({ messages, activeConversation, onResumeBot, onMessageSent }: ChatWindowProps) {
   const [inputValue, setInputValue] = useState("");
   const [isSending, setIsSending] = useState(false);
+  const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
 
-  // Function to resume bot control
+  // Get active platform, default to whatsapp for backward compatibility
+  const platform = activeConversation?.platform || 'whatsapp';
+  const theme = platformThemes[platform] || platformThemes['whatsapp'];
+  
+  // Use universal ID (fallback to wa_number if db hasn't migrated yet)
+  const userId = activeConversation?.platform_user_id || activeConversation?.wa_number;
+
+  const is24HourWindowOpen = () => {
+    if (!theme.has24HourRule) return true; // Always open for website chats
+    if (!activeConversation?.last_user_msg_at) return false;
+    const lastMsgTime = new Date(activeConversation.last_user_msg_at).getTime();
+    const now = new Date().getTime();
+    const hoursDifference = (now - lastMsgTime) / (1000 * 60 * 60);
+    return hoursDifference < 24;
+  };
+
+  const windowOpen = is24HourWindowOpen();
+
   const handleResume = async () => {
     if (!activeConversation) return;
     try {
-      // Endpoint must match backend: /chat/resume
-      const res = await apiClient.post("/chat/resume", { 
-        wa_number: activeConversation.wa_number 
-      });
-
+      const res = await apiClient.post("/chat/resume", { wa_number: userId, platform });
       if (res.data.success) {
-        // Triggers the parent to refresh lead status and hide agent input
         onResumeBot(); 
-        alert("Bot resumed successfully!");
       }
     } catch (err) {
       console.error("Failed to resume bot", err);
-      alert("Error: Could not resume bot session. Check console for details.");
     }
   };
 
@@ -39,17 +99,8 @@ export default function ChatWindow({ messages, activeConversation, onResumeBot, 
     setIsSending(true);
 
     try {
-      await apiClient.post("/chat/send", {
-        wa_number: activeConversation.wa_number,
-        message: inputValue
-      });
-      
-      onMessageSent({ 
-        id: Date.now(),
-        message: inputValue, 
-        sender: "agent", 
-        timestamp: new Date().toISOString() 
-      });
+      await apiClient.post("/chat/send", { wa_number: userId, platform, message: inputValue });
+      onMessageSent({ id: Date.now(), text: inputValue, sender: "agent", timestamp: new Date().toISOString() });
       setInputValue(""); 
     } catch (error) {
       console.error("Failed to send message");
@@ -60,68 +111,107 @@ export default function ChatWindow({ messages, activeConversation, onResumeBot, 
 
   if (!activeConversation) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center bg-slate-50 text-slate-400">
+      <div className="flex-1 flex flex-col items-center justify-center bg-slate-50 text-slate-400 border-l border-slate-200">
         <Bot size={64} className="mb-4 opacity-20" />
         <h2 className="text-xl font-black text-slate-300 uppercase tracking-widest">No Conversation Selected</h2>
-        <p className="text-sm mt-2">Select a lead from the sidebar to view the inbox.</p>
+        <p className="text-sm mt-2">Select a lead from any platform to begin.</p>
       </div>
     );
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-slate-50 relative h-full">
-      {/* Header */}
-      <div className="bg-white p-4 border-b border-slate-200 flex justify-between items-center shadow-sm z-10 shrink-0">
+    <div className={`flex-1 flex flex-col ${theme.containerBg} relative h-full border-l border-slate-200 transition-colors duration-300`}>
+      
+      {/* Dynamic Header */}
+      <div className={`${theme.headerBg} p-3 flex justify-between items-center z-20 shrink-0 transition-colors duration-300 shadow-sm`}>
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-slate-200 rounded-full flex items-center justify-center text-slate-500">
-            <User size={20} />
+          <div className="w-10 h-10 bg-black/10 rounded-full flex items-center justify-center text-current overflow-hidden backdrop-blur-sm">
+            <User size={24} className={`mt-2 ${theme.headerText}`} />
           </div>
           <div>
-            <h3 className="font-bold text-slate-800">{activeConversation.wa_name || "User"}</h3>
-            <p className="text-xs text-slate-500 font-mono">{activeConversation.wa_number}</p>
+            <h3 className={`font-semibold leading-tight ${theme.headerText}`}>
+              {activeConversation.user_name || activeConversation.wa_name || "User"}
+              <span className="ml-2 text-[10px] px-2 py-0.5 rounded bg-black/10 uppercase tracking-wider">
+                {platform}
+              </span>
+            </h3>
+            <p className={`text-xs font-mono ${theme.headerSubText}`}>{userId}</p>
           </div>
         </div>
 
         {activeConversation.human_active && (
-          <button 
-            onClick={handleResume}
-            className="flex items-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all shadow-sm active:scale-95"
-          >
-            <CheckCircle2 size={16} /> Resolve & Resume Bot
+          <button onClick={handleResume} className="flex items-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-full text-xs font-bold transition-all shadow-sm active:scale-95">
+            <CheckCircle2 size={16} /> Resolve Issue
           </button>
         )}
       </div>
 
-      <div className="flex-1 overflow-hidden relative">
-        <MessageList messages={messages} />
+      {/* Dynamic Canvas Background */}
+      <div 
+        className="flex-1 overflow-hidden relative transition-all duration-300"
+        style={{ 
+          backgroundImage: theme.pattern,
+          backgroundRepeat: "repeat",
+          backgroundSize: "initial",
+          opacity: platform === 'whatsapp' ? 0.85 : 1
+        }}
+      >
+        <div className="relative h-full z-10 pb-4">
+          <MessageList messages={messages} />
+        </div>
       </div>
 
-      {/* Input Area */}
-      <div className="bg-white p-4 border-t border-slate-200 shrink-0 z-10">
+      {/* Dynamic Input Area */}
+      <div className={`${theme.inputBg} p-3 shrink-0 z-20 transition-colors duration-300`}>
         {activeConversation.human_active ? (
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleSend()}
-              placeholder="Type your message..."
-              className="flex-1 border-2 border-slate-200 bg-slate-50 focus:bg-white rounded-xl p-3 text-sm focus:border-blue-500 outline-none transition-all"
-            />
-            <button 
-              disabled={isSending}
-              onClick={handleSend}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-6 rounded-xl flex items-center justify-center transition-all shadow-md active:scale-95 disabled:opacity-50"
-            >
-              {isSending ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
-            </button>
-          </div>
+          windowOpen ? (
+            /* 🟢 Window OPEN - Normal Input */
+            <div className="flex gap-2 items-end">
+              <textarea
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSend();
+                  }
+                }}
+                placeholder={`Reply to ${platform} message...`}
+                className="flex-1 bg-white border border-slate-200 rounded-lg p-3 text-sm focus:outline-none focus:border-blue-400 resize-none shadow-sm min-h-[44px] max-h-[120px] transition-all"
+                rows={1}
+              />
+              <button disabled={isSending || !inputValue.trim()} onClick={handleSend} className={`${theme.buttonColor} p-3 rounded-full flex items-center justify-center transition-all shadow-sm disabled:opacity-50 disabled:bg-slate-400 h-[44px] w-[44px] shrink-0`}>
+                {isSending ? <Loader2 size={18} className="animate-spin text-white" /> : <Send size={18} className="ml-1 text-white" />}
+              </button>
+            </div>
+          ) : (
+            /* 🔴 Window CLOSED - Template Lock (Only shows on Meta platforms) */
+            <div className="bg-white border border-slate-200 rounded-lg p-4 flex items-center justify-between shadow-sm">
+              <div>
+                <p className="text-sm font-bold text-slate-800">24-Hour Window Closed</p>
+                <p className="text-xs text-slate-500 mt-0.5">Meta requires a pre-approved template to resume contact.</p>
+              </div>
+              <button 
+                onClick={() => setIsTemplateModalOpen(true)}
+                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-all shadow-sm flex items-center gap-2"
+              >
+                <FolderOpen size={16} /> Send Template
+              </button>
+            </div>
+          )
         ) : (
-          <div className="bg-slate-100 border border-slate-200 rounded-xl p-4 text-center">
-            <p className="text-sm font-bold text-slate-500">The Bot is currently handling this conversation.</p>
+          <div className={`${theme.botNoticeBg} rounded-lg p-3 text-center mx-4 mb-2 shadow-sm`}>
+            <p className="text-xs font-medium">The automation engine is currently handling this conversation.</p>
           </div>
         )}
       </div>
+
+      <TemplateSelectModal 
+        isOpen={isTemplateModalOpen} 
+        onClose={() => setIsTemplateModalOpen(false)} 
+        waNumber={userId} 
+        onSent={() => setIsTemplateModalOpen(false)} 
+      />
     </div>
   );
 }

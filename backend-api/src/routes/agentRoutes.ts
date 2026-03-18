@@ -2,18 +2,15 @@ import { Router } from "express";
 import { 
   getInboxLeads, 
   sendAgentMessage, 
-  resumeBotManually 
+  resumeBotManually,
+  getChatHistory 
 } from "../controllers/agentController";
 
 const router = Router();
 
-// Endpoint: /api/chat/leads
 router.get("/leads", getInboxLeads);
-
-// Endpoint: /api/chat/send
+router.get("/messages/:wa_number", getChatHistory); // ✅ New History Route
 router.post("/send", sendAgentMessage);
-
-// Endpoint: /api/chat/resume (Aligned with frontend)
 router.post("/resume", resumeBotManually); 
 
 export default router;

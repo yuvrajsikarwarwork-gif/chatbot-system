@@ -102,11 +102,14 @@ export const executeFlowFromNode = async (startNode: any, leadId: number, from: 
         clearUserTimers(from);
         activeTimeouts.set(from, setTimeout(async () => {
             await query("UPDATE leads SET human_active = false, bot_active = true, last_node_id = NULL WHERE id = $1", [leadId]);
+            const timeoutMsg = "Agent session ended due to inactivity. The bot has resumed.";
             await axios({
               method: "POST", url: `https://graph.facebook.com/v18.0/${phoneId}/messages`,
-              data: { messaging_product: "whatsapp", to: from, type: "text", text: { body: "Agent session ended due to inactivity. The bot has resumed." } },
+              data: { messaging_product: "whatsapp", to: from, type: "text", text: { body: timeoutMsg } },
               headers: { Authorization: `Bearer ${token}` }
             }).catch(console.error);
+            // Log timeout to DB
+            await query(`INSERT INTO messages (wa_number, message, sender) VALUES ($1, $2, 'system')`, [from, timeoutMsg]);
         }, AGENT_TIMEOUT_MS));
       }
       else if (currentNode.type === "resume_bot") {
@@ -151,16 +154,14 @@ export const executeFlowFromNode = async (startNode: any, leadId: number, from: 
       // 3. SYSTEM LOGIC (API, CONDITION, DELAY)
       else if (currentNode.type === "delay") {
         const delayMs = (data.delay || 1) * 1000;
-        console.log(`⏱️ [Engine] Delaying for ${data.delay} seconds...`);
         await new Promise(res => setTimeout(res, delayMs));
       }
       else if (currentNode.type === "api") {
         try {
           const apiUrl = replaceVariables(data.url, vars);
-          console.log(`🌐 [Engine] Calling API: ${apiUrl}`);
           const response = await axios({ method: data.method || "GET", url: apiUrl });
           if (data.saveTo) {
-            vars[data.saveTo] = response.data; // Store JSON response
+            vars[data.saveTo] = response.data; 
             await query("UPDATE leads SET variables=$1 WHERE id=$2", [JSON.stringify(vars), leadId]);
           }
         } catch (err: any) {
@@ -177,28 +178,26 @@ export const executeFlowFromNode = async (startNode: any, leadId: number, from: 
         else if (operator === "exists") isTrue = userVal !== undefined && userVal !== "";
 
         const matchedHandle = isTrue ? "true" : "false";
-        console.log(`🔀 [Engine] Condition evaluated as ${isTrue.toString().toUpperCase()}`);
-        
-        // Custom Routing for Condition Nodes
         let edge = edges.find((e: any) => String(e.source) === String(currentNode.id) && String(e.sourceHandle) === matchedHandle);
         currentNode = nodes.find((n: any) => String(n.id) === String(edge?.target));
         await query("UPDATE leads SET last_node_id = $1 WHERE id = $2", [currentNode?.id || null, leadId]);
-        continue; // Skip the standard routing block below
+        continue; 
       }
 
-      // Execute standard Message Output
+      // Standard Message Output
       if (payload) {
         await axios({
           method: "POST", url: `https://graph.facebook.com/v18.0/${phoneId}/messages`,
           data: payload, headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }
         }).catch(console.error);
-        if (io) io.emit("whatsapp_message", { from: botName, text: payload.text?.body || "[Interactive Element]", isBot: true });
+        if (io) io.emit("whatsapp_message", { from: from, text: payload.text?.body || "[Interactive Element]", isBot: true });
+        
+        // Log bot reply to DB
+        await query(`INSERT INTO messages (wa_number, message, sender) VALUES ($1, $2, 'bot')`, [from, payload.text?.body || "[Interactive Sent]"]);
       }
 
-      // Update position
       await query("UPDATE leads SET last_node_id = $1 WHERE id = $2", [currentNode.id, leadId]);
 
-      // Handle Input Waits
       if (isInputNode(currentNode.type)) {
         clearUserTimers(from);
         const reminderDelay = (data.reminderDelay || 60) * 1000;
@@ -229,7 +228,6 @@ export const executeFlowFromNode = async (startNode: any, leadId: number, from: 
         break; 
       }
 
-      // Standard Edge Routing
       let edge = edges.find((e: any) => String(e.source) === String(currentNode.id) && (!e.sourceHandle || e.sourceHandle === "response"));
       currentNode = nodes.find((n: any) => String(n.id) === String(edge?.target));
     }
@@ -248,54 +246,70 @@ export const processIncomingMessage = async (from: string, waName: string, incom
     const text = (incomingText || "").toLowerCase().trim();
     const token = getActiveToken();
 
-    // 1. FETCH LEAD STATUS FIRST
+    // 1. Fetch Lead Status
     const leadCheck = await query("SELECT * FROM leads WHERE wa_number = $1", [from]);
     let lead = leadCheck.rows[0];
 
-    // 2. HUMAN MODE PROTECTION
-    // If a human is active, the bot MUST stay silent unless the user types 'reset'
-    if (lead?.human_active && text !== "reset") {
-      console.log(`👤 [Engine] Human is active for ${from}. Bot is ignoring input.`);
-      return; 
+    // 2. Log User Message & Update Timestamps
+    if (text) {
+      await query(`INSERT INTO messages (wa_number, message, sender) VALUES ($1, $2, 'user')`, [from, incomingText]);
+      await query(`UPDATE leads SET last_user_msg_at = NOW(), updated_at = NOW() WHERE wa_number = $1`, [from]);
     }
 
-    // ESCAPE HATCH (End/Stop)
+    // 3. 🚨 THE ESCAPE HATCH (Priority #1)
+    // We check this BEFORE the human guard so users can always end the session.
     if (ESCAPE_KEYWORDS.includes(text)) {
       clearUserTimers(from);
-      // Hard reset everything to defaults
+      
+      // Reset lead to bot mode
       await query(`
         UPDATE leads 
         SET last_node_id = NULL, 
-            variables = '{}', 
             retry_count = 0, 
             human_active = false, 
             bot_active = true 
         WHERE wa_number = $1`, [from]);
         
+      const endMsg = "Conversation ended. Type 'hi' to start again.";
+      
+      // Notify WhatsApp
       await axios({
-        method: "POST", url: `https://graph.facebook.com/v18.0/${DEFAULT_PHONE_ID}/messages`,
-        data: { messaging_product: "whatsapp", to: from, type: "text", text: { body: "Conversation ended. Type 'hi' to start again." } },
+        method: "POST", 
+        url: `https://graph.facebook.com/v18.0/${DEFAULT_PHONE_ID}/messages`,
+        data: { messaging_product: "whatsapp", to: from, type: "text", text: { body: endMsg } },
         headers: { Authorization: `Bearer ${token}` }
       });
+
+      // Log System Message for Dashboard History
+      const systemMsg = "User forcibly ended the conversation.";
+      await query(`INSERT INTO messages (wa_number, message, sender) VALUES ($1, $2, 'system')`, [from, systemMsg]);
+
+      // Instant Update for Frontend Dashboard
+      if (io) {
+        io.emit("whatsapp_message", { from, text: systemMsg, isBot: true, sender: "system" });
+      }
       return; 
     }
+
+    // 4. 👤 HUMAN MODE GUARD (Priority #2)
+    // Bot stays silent if agent is active, unless it was an escape keyword (checked above).
+    if (lead?.human_active && text !== "reset") {
+      console.log(`👤 [Engine] Human is active for ${from}. Bot ignoring input.`);
+      return; 
+    }
+
+    // 5. RESET LOGIC
+    if (text === "reset") {
+       await query("UPDATE leads SET last_node_id = NULL, retry_count = 0, human_active = false, bot_active = true WHERE wa_number = $1", [from]);
+       return; 
+    }
+
 
     const activeBotsRes = await query("SELECT * FROM bots WHERE status = 'active'");
     const activeBots = activeBotsRes.rows;
     if (!activeBots.length) return;
 
     clearUserTimers(from);
-
-    // RESET LOGIC
-    if (text === "reset") {
-       console.log(`🔄 [Engine] Resetting session for ${from}`);
-       await query("UPDATE leads SET last_node_id = NULL, retry_count = 0, human_active = false, bot_active = true WHERE wa_number = $1", [from]);
-       // If it was a reset, we stop here so the user can send a new trigger keyword
-       return; 
-    }
-
-    // ... (rest of your existing bot matching logic)
-
 
     let targetBot = null;
     let flowData = null;

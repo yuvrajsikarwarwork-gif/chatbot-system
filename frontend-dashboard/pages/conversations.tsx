@@ -16,7 +16,8 @@ export default function ConversationsPage() {
 
   const fetchConversations = async () => {
     try {
-      const res = await apiClient.get('/leads'); 
+      // Depending on your index.ts, this might be /chat/leads or /leads
+      const res = await apiClient.get('/chat/leads').catch(() => apiClient.get('/leads')); 
       setConversations(Array.isArray(res.data) ? res.data : []);
     } catch (err) {
       console.error("Failed to load conversations:", err);
@@ -27,7 +28,7 @@ export default function ConversationsPage() {
   useEffect(() => {
     fetchConversations();
 
-    const newSocket = io(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'); // Ensure this points to your backend port 4000
+    const newSocket = io(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'); 
     setSocket(newSocket);
 
     newSocket.on('whatsapp_message', (msg: any) => {
@@ -57,8 +58,25 @@ export default function ConversationsPage() {
     setActiveConversation(convo);
     activeConvoRef.current = convo;
     
-    // TEMPORARY: Clear messages. Next patch we will fetch history from DB here!
+    // Clear messages instantly for snappy UX while loading
     setMessages([]); 
+
+    // ✅ Fetch the actual chat history from the DB
+    try {
+      const res = await apiClient.get(`/chat/messages/${convo.wa_number}`);
+      if (res.data && Array.isArray(res.data)) {
+        // Map the DB columns to the frontend expectations
+        const formattedHistory = res.data.map((msg: any) => ({
+          id: msg.id,
+          text: msg.text,
+          sender: msg.sender, // 'user', 'bot', 'agent', or 'system'
+          timestamp: msg.timestamp
+        }));
+        setMessages(formattedHistory);
+      }
+    } catch (err) {
+      console.error("Failed to fetch chat history:", err);
+    }
   };
 
   const handleResumeBot = () => {
