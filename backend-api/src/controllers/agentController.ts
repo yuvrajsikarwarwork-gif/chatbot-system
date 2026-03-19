@@ -1,98 +1,40 @@
-import { Response, NextFunction } from "express";
-import { AuthRequest } from "../middleware/authMiddleware";
-import {
-  getTicketsService,
-  createTicketService,
-  closeTicketService,
-  replyTicketService,
-} from "../services/agentService";
+// backend-api/src/controllers/agentController.ts
+
+import { Request, Response } from "express";
+import { routeMessage, GenericMessage } from "../services/messageRouter";
+import { query } from "../config/db";
 
 /**
- * 1. Fetch Inbox Tickets
- * Retrieves all agent tickets for a specific bot owned by the user.
+ * POST /api/conversations/:conversationId/reply
+ * Sends a manual message from the Admin Dashboard to the user.
  */
-export async function getTickets(
-  req: AuthRequest,
-  res: Response,
-  next: NextFunction
-) {
+export const sendAgentReply = async (req: Request, res: Response) => {
+  const { conversationId } = req.params;
+  const { text } = req.body;
+  const io = req.app.get("io");
+
+  if (!text) return res.status(400).json({ error: "Message text is required" });
+
   try {
-    const { botId } = req.params;
-    
-    // Validated by agentService (Bot ownership check)
-    const data = await getTicketsService(botId, req.user!.id);
-    
-    res.json(data);
-  } catch (err) {
-    next(err);
+    // 1. Mark conversation as 'agent_pending' if it wasn't already 
+    // (This pauses the bot so it doesn't interrupt the human)
+    await query(
+      "UPDATE conversations SET status = 'agent_pending', updated_at = NOW() WHERE id = $1", 
+      [conversationId]
+    );
+
+    // 2. Construct the GenericMessage
+    const message: GenericMessage = {
+      type: "text",
+      text: text
+    };
+
+    // 3. Route it! The router handles finding the Bot, Channel, and Platform ID.
+    await routeMessage(conversationId, message, io);
+
+    res.json({ success: true, message: "Reply sent via router" });
+  } catch (err: any) {
+    console.error("[Agent Reply Error]:", err.message);
+    res.status(500).json({ error: "Failed to send agent reply" });
   }
-}
-
-/**
- * 2. Create Agent Ticket
- * Manually escalates a conversation to a human agent.
- */
-export async function createTicket(
-  req: AuthRequest,
-  res: Response,
-  next: NextFunction
-) {
-  try {
-    const { conversationId } = req.body;
-
-    // Validated by agentService (Conversation -> Bot -> User ownership check)
-    const data = await createTicketService(conversationId, req.user!.id);
-
-    res.json(data);
-  } catch (err) {
-    next(err);
-  }
-}
-
-/**
- * 3. Close Agent Ticket
- * Resolves the human session and returns control to the bot.
- */
-export async function closeTicket(
-  req: AuthRequest,
-  res: Response,
-  next: NextFunction
-) {
-  try {
-    const { ticketId } = req.params;
-
-    // Validated by agentService (Ticket -> Conversation -> Bot -> User ownership check)
-    const data = await closeTicketService(ticketId, req.user!.id);
-
-    res.json({ success: true, data });
-  } catch (err) {
-    next(err);
-  }
-}
-
-/**
- * 4. Send Agent Reply
- * Logs the agent's message into the conversation thread. 
- * (Actual transmission to Meta/Web occurs via Connectors monitoring the messages table).
- */
-export async function replyToTicket(
-  req: AuthRequest,
-  res: Response,
-  next: NextFunction
-) {
-  try {
-    const { ticketId } = req.params;
-    const { text } = req.body;
-
-    if (!text) {
-      return res.status(400).json({ error: "Message text is required" });
-    }
-
-    // Validated by agentService (Ticket -> Conversation -> Bot -> User ownership check)
-    const data = await replyTicketService(ticketId, req.user!.id, text);
-
-    res.json({ success: true, data });
-  } catch (err) {
-    next(err);
-  }
-}
+};

@@ -1,3 +1,5 @@
+// backend-api/src/server.ts
+
 import { app } from "./app";
 import { env } from "./config/env";
 import { db, query } from "./config/db"; 
@@ -5,11 +7,8 @@ import { redis } from "./config/redis";
 import http from "http";
 import { Server } from "socket.io";
 import cron from "node-cron"; 
-import axios from "axios";
 import 'dotenv/config';
-
-const DEFAULT_PHONE_ID = process.env.PHONE_NUMBER_ID || "1030050193525162";
-const TOKEN = process.env.WHATSAPP_ACCESS_TOKEN || "";
+import { routeMessage, GenericMessage } from "./services/messageRouter"; // <-- Added Router Import
 
 async function start() {
   try {
@@ -38,46 +37,44 @@ async function start() {
 
     app.set("io", io);
 
-    // --- PHASE 3: UPGRADED 10-MINUTE AUTO-TIMEOUT ---
+    // --- PHASE 3: MULTI-CHANNEL UPGRADED 10-MINUTE AUTO-TIMEOUT ---
     cron.schedule("* * * * *", async () => {
       const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
       
       try {
-        // Find timed-out chats and RETURNING wa_number so we know WHO timed out
+        // Find timed-out chats across ALL channels
         const result = await query(
-          `UPDATE leads 
-           SET human_active = false, bot_active = true, last_node_id = NULL 
-           WHERE human_active = true AND updated_at < $1
-           RETURNING wa_number`,
+          `UPDATE conversations 
+           SET status = 'active', current_node = NULL 
+           WHERE status = 'agent_pending' AND updated_at < $1
+           RETURNING id, bot_id, contact_id, channel`,
           [tenMinutesAgo]
         );
 
-        if (result.rowCount > 0) {
+        if (result.rowCount && result.rowCount > 0) {
           console.log(`🤖 Auto-resumed bot for ${result.rowCount} inactive sessions.`);
 
-          // Process the cleanup for each timed-out lead
-          for (const row of result.rows) {
-            const waNumber = row.wa_number;
-            const systemMsg = "Agent session ended due to inactivity. The bot has resumed.";
+          for (const conv of result.rows) {
+            // Fetch the contact to get the platform_user_id
+            const contactRes = await query(`SELECT platform_user_id FROM contacts WHERE id = $1`, [conv.contact_id]);
+            const platformUserId = contactRes.rows[0]?.platform_user_id;
 
-            // 1. Send the notification to the user via WhatsApp API
-            await axios({
-              method: "POST",
-              url: `https://graph.facebook.com/v18.0/${DEFAULT_PHONE_ID}/messages`,
-              data: { messaging_product: "whatsapp", to: waNumber, type: "text", text: { body: systemMsg } },
-              headers: { Authorization: `Bearer ${TOKEN}` }
-            }).catch(e => console.error("Cron WA Send Error:", e.message));
+            if (platformUserId) {
+                const systemMsg: GenericMessage = { 
+                    type: "system", 
+                    text: "Agent session ended due to inactivity. The bot has resumed." 
+                };
 
-            // 2. Log the System message to the database
-            await query(`INSERT INTO messages (wa_number, message, sender) VALUES ($1, $2, 'system')`, [waNumber, systemMsg]);
-
-            // 3. Ping the Frontend Dashboard to instantly update the UI
-            io.emit("whatsapp_message", {
-              from: waNumber,
-              text: systemMsg,
-              isBot: true,
-              sender: "system"
-            });
+                // Dispatch via the central router (handles logging, websocket emit, and channel delivery)
+                await routeMessage(
+                    conv.bot_id, 
+                    conv.id, 
+                    conv.channel, 
+                    platformUserId, 
+                    systemMsg, 
+                    io
+                );
+            }
           }
         }
       } catch (err) {
