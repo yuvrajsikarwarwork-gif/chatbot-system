@@ -1,3 +1,5 @@
+// frontend-dashboard/components/flow/NodeEditor.tsx
+
 import { Node } from "reactflow";
 import { useState } from "react";
 import apiClient from "../../services/apiClient";
@@ -284,7 +286,6 @@ export default function NodeEditor({ node, onUpdate, onClose }: NodeEditorProps)
   };
 
   return (
-    // ✅ BUG FIX: onKeyDownCapture completely intercepts keys before React Flow can delete the node!
     <div 
       className="w-full h-full bg-white flex flex-col relative overflow-hidden nodrag nopan" 
       onKeyDownCapture={(e) => e.stopPropagation()}

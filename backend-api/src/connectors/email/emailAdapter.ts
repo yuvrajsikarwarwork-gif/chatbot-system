@@ -1,5 +1,3 @@
-// backend-api/src/connectors/email/emailAdapter.ts
-
 import * as nodemailer from "nodemailer";
 import { query } from "../../config/db";
 import { GenericMessage } from "../../services/messageRouter";
@@ -48,10 +46,11 @@ export const sendEmailAdapter = async (
         ? JSON.parse(msg.templateContent) 
         : msg.templateContent;
 
-      headerText = tpl.header || "";
+      // Updated to match generic JSON structure: { header: { text: "..." } }
+      headerText = tpl.header?.text || "";
       bodyText = tpl.body || bodyText;
       footerText = tpl.footer || "";
-      interactiveButtons = tpl.buttons || interactiveButtons;
+      interactiveButtons = tpl.buttons || [];
     }
 
     // 4. Format the HTML Body
@@ -95,7 +94,7 @@ export const sendEmailAdapter = async (
       text: bodyText // Fallback plain text
     });
 
-    console.log(`[Email Outbound] Sent generic template/message to ${toEmail}`);
+    console.log(`[Email Outbound] Sent standardized template/message to ${toEmail}`);
 
   } catch (error: any) {
     console.error(`[Email Send Error]:`, error.message);

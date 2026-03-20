@@ -26,8 +26,11 @@
     .msg-bubble { max-width: 80%; padding: 10px 14px; border-radius: 18px; font-size: 14px; line-height: 1.4; word-wrap: break-word; }
     .msg-user { background: #2563eb; color: white; align-self: flex-end; border-bottom-right-radius: 4px; }
     .msg-bot { background: #e5e7eb; color: #1f2937; align-self: flex-start; border-bottom-left-radius: 4px; }
-    .msg-interactive-btn { display: block; width: 100%; margin-top: 5px; padding: 8px; background: white; border: 1px solid #2563eb; color: #2563eb; border-radius: 6px; cursor: pointer; text-align: center; font-size: 13px; }
+    .msg-interactive-btn { display: block; width: 100%; margin-top: 5px; padding: 8px; background: white; border: 1px solid #2563eb; color: #2563eb; border-radius: 6px; cursor: pointer; text-align: center; font-size: 13px; font-weight: 500; }
     .msg-interactive-btn:hover { background: #eff6ff; }
+    .msg-template-wrapper { background: #e5e7eb; color: #1f2937; align-self: flex-start; max-width: 80%; padding: 12px; border-radius: 12px; border-bottom-left-radius: 4px; font-size: 14px; line-height: 1.4; }
+    .msg-template-header { font-weight: 600; margin-bottom: 6px; font-size: 15px; }
+    .msg-template-footer { font-size: 11px; color: #6b7280; margin-top: 8px; border-top: 1px solid #d1d5db; padding-top: 6px; }
   `;
 
   const styleTag = document.createElement("style");
@@ -70,22 +73,21 @@
   let socket;
 
   const initializeChat = () => {
-    // Connect to the backend
     socket = io(BACKEND_URL);
 
     socket.on("connect", () => {
       console.log("Widget connected to Chatbot Engine");
-      // Register this user to their specific room
       socket.emit("register_web_user", { botId: BOT_ID, platformUserId });
     });
 
-    // Listen for incoming bot messages
     socket.on("receive_web_message", (data) => {
       const msg = data.message;
       if (msg.type === "text" || msg.type === "system") {
         appendMessage(msg.text, "bot");
       } else if (msg.type === "interactive") {
         appendInteractiveMessage(msg.text, msg.buttons, "bot");
+      } else if (msg.type === "template") {
+        appendTemplateMessage(msg.templateContent, msg.text, "bot");
       }
     });
   };
@@ -94,10 +96,8 @@
   const sendMessage = (text, buttonId = null) => {
     if (!text.trim() && !buttonId) return;
     
-    // Show user message in UI
     appendMessage(text, "user");
     
-    // Send to backend via Socket
     socket.emit("send_web_message", {
       botId: BOT_ID,
       platformUserId,
@@ -142,7 +142,7 @@
         btnElement.innerText = btn.title;
         btnElement.onclick = () => {
           sendMessage(btn.title, btn.id);
-          btnContainer.style.display = "none"; // Hide buttons after click
+          btnContainer.style.display = "none";
         };
         btnContainer.appendChild(btnElement);
       });
@@ -150,6 +150,66 @@
     }
 
     messagesDiv.appendChild(wrapper);
+    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+  };
+
+  const appendTemplateMessage = (templateContent, fallbackText, sender) => {
+    // Fallback if template is malformed
+    if (!templateContent) {
+      appendMessage(fallbackText || "[Template Message]", sender);
+      return;
+    }
+
+    const tpl = typeof templateContent === "string" ? JSON.parse(templateContent) : templateContent;
+    
+    // Main Wrapper
+    const wrapper = document.createElement("div");
+    wrapper.className = "msg-template-wrapper";
+
+    // Header
+    if (tpl.header && tpl.header.text) {
+      const header = document.createElement("div");
+      header.className = "msg-template-header";
+      header.innerText = tpl.header.text;
+      wrapper.appendChild(header);
+    }
+
+    // Body
+    const body = document.createElement("div");
+    body.innerText = tpl.body || fallbackText || "";
+    wrapper.appendChild(body);
+
+    // Footer
+    if (tpl.footer) {
+      const footer = document.createElement("div");
+      footer.className = "msg-template-footer";
+      footer.innerText = tpl.footer;
+      wrapper.appendChild(footer);
+    }
+
+    messagesDiv.appendChild(wrapper);
+
+    // Buttons Container (Rendered outside the bubble to match typical chat UI)
+    if (tpl.buttons && tpl.buttons.length > 0) {
+      const btnContainer = document.createElement("div");
+      btnContainer.style.alignSelf = "flex-start";
+      btnContainer.style.width = "80%";
+      btnContainer.style.marginTop = "5px";
+
+      tpl.buttons.forEach(btn => {
+        const btnElement = document.createElement("button");
+        btnElement.className = "msg-interactive-btn";
+        btnElement.innerText = btn.title || btn.text || "Click";
+        
+        btnElement.onclick = () => {
+          sendMessage(btnElement.innerText, btn.id || btn.payload || btnElement.innerText);
+          btnContainer.style.display = "none";
+        };
+        btnContainer.appendChild(btnElement);
+      });
+      messagesDiv.appendChild(btnContainer);
+    }
+
     messagesDiv.scrollTop = messagesDiv.scrollHeight;
   };
 

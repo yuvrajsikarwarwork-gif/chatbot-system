@@ -1,7 +1,5 @@
-// backend-api/src/connectors/website/websiteAdapter.ts
-
 import { Server, Socket } from "socket.io";
-import { processIncomingMessage } from "../../services/flowEngine";
+import * as FlowEngine from "../../services/flowEngine";
 import { GenericMessage } from "../../services/messageRouter";
 
 /**
@@ -11,7 +9,7 @@ export const initializeWebConnector = (io: Server) => {
   io.on("connection", (socket: Socket) => {
     console.log(`🌐 Web Socket Connected | ID: ${socket.id}`);
 
-    // 1. Register User to an isolated room based on their session/platform ID
+    // Register User to a specific room
     socket.on("register_web_user", (data: { botId: string; platformUserId: string }) => {
       if (data.botId && data.platformUserId) {
         const room = `${data.botId}_${data.platformUserId}`;
@@ -20,7 +18,7 @@ export const initializeWebConnector = (io: Server) => {
       }
     });
 
-    // 2. Handle incoming text or button clicks from the widget
+    // Handle incoming text OR button clicks
     socket.on("send_web_message", async (data: { 
       botId: string; 
       platformUserId: string; 
@@ -29,17 +27,17 @@ export const initializeWebConnector = (io: Server) => {
       buttonId?: string 
     }) => {
       try {
-        console.log(`[Web Inbound] MSG from ${data.platformUserId}: ${data.text}`);
+        console.log(`[Web Inbound] MSG/Button from ${data.platformUserId}: ${data.text || data.buttonId}`);
         
-        // Pipe the standard data into the channel-agnostic Flow Engine
-        await processIncomingMessage(
+        // Pipe into the Flow Engine
+        await FlowEngine.processIncomingMessage(
           data.botId,
           data.platformUserId,
           data.userName || "Web User",
-          data.text,
-          data.buttonId || "",
+          data.text || "",     // User might send text
+          data.buttonId || "", // OR they clicked a button
           io,
-          "web" // <--- The critical channel declaration
+          "web"
         );
       } catch (err: any) {
         console.error("[Web Inbound Error]:", err.message);
@@ -61,20 +59,26 @@ export const sendWebAdapter = async (
   msg: GenericMessage, 
   io: Server
 ) => {
-  if (!io) {
-      console.error("[Web Outbound Error]: Socket.io instance not provided to Router.");
-      return;
-  }
+  if (!io) return;
 
-  // Target the specific user's room
   const room = `${botId}_${platformUserId}`;
   
-  io.to(room).emit("receive_web_message", {
+  // Patch: Standardize payload for the widget
+  // We ensure 'templateContent' is included so the widget can render UI components
+  const outboundPayload = {
     botId,
     from: platformUserId,
-    message: msg, // Sending the full GenericMessage object (text, buttons, type)
+    message: {
+      ...msg,
+      // Fallback: If it's a template but 'text' is empty, provide a snippet for the notification
+      text: msg.text || msg.templateContent?.body || (msg.type === 'template' ? `[Template: ${msg.templateName}]` : "")
+    },
     timestamp: new Date().toISOString()
-  });
-  
-  console.log(`[Web Outbound] Sent payload to ${room}`);
+  };
+
+  io.to(room).emit("receive_web_message", outboundPayload);
+
+  if (msg.type === 'template') {
+    console.log(`[Web Outbound] Delivered Template: ${msg.templateName} to ${room}`);
+  }
 };

@@ -1,3 +1,5 @@
+// frontend-dashboard/components/chat/TemplateSelectModal.tsx
+
 import React, { useEffect, useState } from 'react';
 import apiClient from '../../services/apiClient';
 import { X, Send, Loader2 } from 'lucide-react';
@@ -16,7 +18,7 @@ export default function TemplateSelectModal({ isOpen, onClose, waNumber, onSent 
   const handleSendTemplate = async (templateName: string) => {
     setLoading(true);
     try {
-      // Assuming your backend has an endpoint to send templates
+      // Keeps your existing endpoint architecture but sends the correct template trigger
       await apiClient.post('/chat/send-template', { wa_number: waNumber, template_name: templateName });
       onSent();
       onClose();
@@ -25,6 +27,15 @@ export default function TemplateSelectModal({ isOpen, onClose, waNumber, onSent 
     } finally {
       setLoading(false);
     }
+  };
+
+  // Helper to safely extract the preview text from the new JSONB content structure
+  const getTemplatePreview = (t: any) => {
+    if (t.content) {
+      const contentObj = typeof t.content === 'string' ? JSON.parse(t.content) : t.content;
+      return contentObj.body || t.body_text || "No preview available";
+    }
+    return t.body_text || "No preview available";
   };
 
   if (!isOpen) return null;
@@ -51,7 +62,9 @@ export default function TemplateSelectModal({ isOpen, onClose, waNumber, onSent 
                   <p className="font-black text-xs uppercase tracking-wider text-emerald-600">{t.name}</p>
                   <Send size={14} className="text-slate-300 group-hover:text-emerald-500" />
                 </div>
-                <p className="text-sm text-slate-600 leading-snug">{t.body_text}</p>
+                <p className="text-sm text-slate-600 leading-snug">
+                  {getTemplatePreview(t)}
+                </p>
               </button>
             ))
           )}

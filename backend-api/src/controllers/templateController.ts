@@ -1,9 +1,10 @@
-// backend-api/src/controllers/templateController.ts
-
 import { Request, Response } from "express";
 import { query } from "../config/db";
 import { routeMessage, GenericMessage } from "../services/messageRouter";
 
+/**
+ * 1. Create Template (Consolidated JSONB Content)
+ */
 export const createTemplate = async (req: Request, res: Response) => {
   try {
     const { 
@@ -13,16 +14,24 @@ export const createTemplate = async (req: Request, res: Response) => {
 
     if (!bot_id) return res.status(400).json({ error: "bot_id is required" });
 
+    // Patch: Consolidate UI fields into a generic content structure for cross-channel rendering
+    const content = {
+      header: { type: header_type || 'text', text: header },
+      body: body,
+      footer: footer,
+      buttons: buttons || []
+    };
+
     const result = await query(
       `INSERT INTO templates 
-      (bot_id, platform_type, name, category, language, header_type, header, body, footer, buttons, variables, status, updated_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, CURRENT_TIMESTAMP) RETURNING *`,
+      (bot_id, platform_type, name, category, language, content, variables, status, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP) RETURNING *`,
       [
         bot_id, platform_type, name, category, language || 'en_US', 
-        header_type || 'text', header, body, footer, 
-        JSON.stringify(buttons || []), JSON.stringify(variables || {}), 'pending' 
+        JSON.stringify(content), JSON.stringify(variables || {}), 'pending' 
       ]
     );
+    
     res.status(201).json(result.rows[0]);
   } catch (error) {
     console.error("❌ Error creating template:", error);
@@ -33,15 +42,23 @@ export const createTemplate = async (req: Request, res: Response) => {
 export const getTemplates = async (req: Request, res: Response) => {
   try {
     const { platform, bot_id } = req.query;
-    if (!bot_id) return res.status(400).json({ error: "bot_id is required" });
 
-    let sql = `SELECT * FROM templates WHERE bot_id = $1`;
-    let params: any[] = [bot_id];
+    let sql = `SELECT * FROM templates`;
+    let params: any[] = [];
+    let paramIndex = 1;
+
+    // Patch: Dynamic query building to prevent frontend 400 crashes if bot_id is missing
+    if (bot_id) {
+      sql += ` WHERE bot_id = $${paramIndex++}`;
+      params.push(bot_id);
+    }
 
     if (platform) {
-        sql += ` AND platform_type = $2`;
-        params.push(platform);
+      sql += bot_id ? ` AND ` : ` WHERE `;
+      sql += `platform_type = $${paramIndex++}`;
+      params.push(platform);
     }
+
     sql += ` ORDER BY created_at DESC`;
 
     const result = await query(sql, params);
@@ -52,6 +69,9 @@ export const getTemplates = async (req: Request, res: Response) => {
   }
 };
 
+/**
+ * 2. Update Template (Consolidated JSONB Content)
+ */
 export const updateTemplate = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -64,15 +84,23 @@ export const updateTemplate = async (req: Request, res: Response) => {
       return res.status(403).json({ error: "Approved templates cannot be edited." });
     }
 
+    // Patch: Update using the consolidated content object
+    const content = {
+      header: { type: header_type || 'text', text: header },
+      body: body,
+      footer: footer,
+      buttons: buttons || []
+    };
+
     const result = await query(
       `UPDATE templates SET 
-        header_type = $1, header = $2, body = $3, footer = $4, 
-        buttons = $5, variables = $6, updated_at = CURRENT_TIMESTAMP, status = 'pending'
-      WHERE id = $7 RETURNING *`,
-      [header_type, header, body, footer, JSON.stringify(buttons), JSON.stringify(variables), id]
+        content = $1, variables = $2, updated_at = CURRENT_TIMESTAMP, status = 'pending'
+      WHERE id = $3 RETURNING *`,
+      [JSON.stringify(content), JSON.stringify(variables), id]
     );
     res.status(200).json(result.rows[0]);
   } catch (error) {
+    console.error("❌ Error updating template:", error);
     res.status(500).json({ error: "Internal Server Error" });
   }
 };
@@ -102,56 +130,62 @@ export const deleteTemplate = async (req: Request, res: Response) => {
   }
 };
 
+/**
+ * 3. Launch Campaign (Conversation-First Refactor)
+ */
 export const launchCampaign = async (req: Request, res: Response) => {
   try {
-    const { bot_id, templateId, contactIds, campaignName } = req.body; // Using contactIds instead of leadIds
+    const { bot_id, templateId, contactIds, campaignName } = req.body;
     const io = req.app.get("io");
 
     if (!bot_id) return res.status(400).json({ error: "bot_id is required" });
 
-    // 1. Get the template details
     const tplRes = await query(`SELECT * FROM templates WHERE id = $1 AND bot_id = $2`, [templateId, bot_id]);
     if (tplRes.rows.length === 0) return res.status(404).json({ error: "Template not found" });
     const template = tplRes.rows[0];
 
-    // 2. Get the contacts (Phase 1 Refactor)
     const contactsRes = await query(`SELECT * FROM contacts WHERE id = ANY($1) AND bot_id = $2`, [contactIds, bot_id]);
     const contacts = contactsRes.rows;
 
     let successCount = 0;
     let failCount = 0;
 
-    // 3. Blast the messages via the Centralized Router
     for (const contact of contacts) {
       try {
         const payload: GenericMessage = {
           type: "template",
           templateName: template.name,
           languageCode: template.language,
-          text: `[Template: ${template.name}]` // Fallback text for internal logging
+          text: `[Campaign: ${campaignName}] ${template.name}`
         };
 
-        // Attempt to find or create a conversation context for logging
-        let convId = null;
-        const convRes = await query(`SELECT id FROM conversations WHERE contact_id = $1 AND channel = $2`, [contact.id, template.platform_type]);
-        if (convRes.rows[0]) convId = convRes.rows[0].id;
-
-        await routeMessage(
-            bot_id,
-            convId || contact.id, // Fallback if no active conversation exists
-            template.platform_type,
-            contact.platform_user_id,
-            payload,
-            io
+        // Patch: Find or create a conversation to comply with the new Router logic
+        let convRes = await query(
+          `SELECT id FROM conversations WHERE contact_id = $1 AND channel = $2`, 
+          [contact.id, template.platform_type]
         );
+        
+        let convId = convRes.rows[0]?.id;
+
+        if (!convId) {
+          const newConv = await query(
+            `INSERT INTO conversations (bot_id, contact_id, channel, status) 
+             VALUES ($1, $2, $3, 'active') RETURNING id`,
+            [bot_id, contact.id, template.platform_type]
+          );
+          convId = newConv.rows[0].id;
+        }
+
+        // Patch: Execute via the new simplified Router signature
+        await routeMessage(convId, payload, io);
+        
         successCount++;
       } catch (err) {
-        console.error(`Failed to send to ${contact.platform_user_id}:`, err);
+        console.error(`Failed to send to contact ${contact.id}:`, err);
         failCount++;
       }
     }
 
-    // 4. Log the campaign
     await query(
       `INSERT INTO template_logs 
       (bot_id, campaign_name, template_name, platform, total_leads, success_count, fail_count) 

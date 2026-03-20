@@ -55,7 +55,7 @@ const platformThemes: Record<string, any> = {
     inputBg: "bg-white border-t border-slate-200",
     buttonColor: "bg-slate-800 hover:bg-slate-900 text-white",
     botNoticeBg: "bg-slate-200 border-slate-300 text-slate-800",
-    has24HourRule: false // 🔓 Websites don't have a 24-hour rule!
+    has24HourRule: false 
   }
 };
 
@@ -64,15 +64,13 @@ export default function ChatWindow({ messages, activeConversation, onResumeBot, 
   const [isSending, setIsSending] = useState(false);
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
 
-  // Get active platform, default to whatsapp for backward compatibility
-  const platform = activeConversation?.platform || 'whatsapp';
+  const platform = activeConversation?.channel || activeConversation?.platform || 'whatsapp';
   const theme = platformThemes[platform] || platformThemes['whatsapp'];
   
-  // Use universal ID (fallback to wa_number if db hasn't migrated yet)
   const userId = activeConversation?.platform_user_id || activeConversation?.wa_number;
 
   const is24HourWindowOpen = () => {
-    if (!theme.has24HourRule) return true; // Always open for website chats
+    if (!theme.has24HourRule) return true; 
     if (!activeConversation?.last_user_msg_at) return false;
     const lastMsgTime = new Date(activeConversation.last_user_msg_at).getTime();
     const now = new Date().getTime();
@@ -99,8 +97,17 @@ export default function ChatWindow({ messages, activeConversation, onResumeBot, 
     setIsSending(true);
 
     try {
-      await apiClient.post("/chat/send", { wa_number: userId, platform, message: inputValue });
-      onMessageSent({ id: Date.now(), text: inputValue, sender: "agent", timestamp: new Date().toISOString() });
+      // ✅ Updated to use the unified Conversation-First router
+      // Note: Adjust the prefix (/agent/ or /api/) if your Axios instance doesn't append it automatically.
+      await apiClient.post(`/conversations/${activeConversation.id}/reply`, { text: inputValue });
+      
+      // Manually add the generic payload structure to state for immediate rendering
+      onMessageSent({ 
+        id: Date.now(), 
+        content: { type: "text", text: inputValue }, 
+        sender: "agent", 
+        created_at: new Date().toISOString() 
+      });
       setInputValue(""); 
     } catch (error) {
       console.error("Failed to send message");
@@ -122,7 +129,6 @@ export default function ChatWindow({ messages, activeConversation, onResumeBot, 
   return (
     <div className={`flex-1 flex flex-col ${theme.containerBg} relative h-full border-l border-slate-200 transition-colors duration-300`}>
       
-      {/* Dynamic Header */}
       <div className={`${theme.headerBg} p-3 flex justify-between items-center z-20 shrink-0 transition-colors duration-300 shadow-sm`}>
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-black/10 rounded-full flex items-center justify-center text-current overflow-hidden backdrop-blur-sm">
@@ -130,7 +136,7 @@ export default function ChatWindow({ messages, activeConversation, onResumeBot, 
           </div>
           <div>
             <h3 className={`font-semibold leading-tight ${theme.headerText}`}>
-              {activeConversation.user_name || activeConversation.wa_name || "User"}
+              {activeConversation.user_name || activeConversation.wa_name || activeConversation.name || "User"}
               <span className="ml-2 text-[10px] px-2 py-0.5 rounded bg-black/10 uppercase tracking-wider">
                 {platform}
               </span>
@@ -139,14 +145,13 @@ export default function ChatWindow({ messages, activeConversation, onResumeBot, 
           </div>
         </div>
 
-        {activeConversation.human_active && (
+        {activeConversation.status === 'agent_pending' && (
           <button onClick={handleResume} className="flex items-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-full text-xs font-bold transition-all shadow-sm active:scale-95">
             <CheckCircle2 size={16} /> Resolve Issue
           </button>
         )}
       </div>
 
-      {/* Dynamic Canvas Background */}
       <div 
         className="flex-1 overflow-hidden relative transition-all duration-300"
         style={{ 
@@ -161,11 +166,9 @@ export default function ChatWindow({ messages, activeConversation, onResumeBot, 
         </div>
       </div>
 
-      {/* Dynamic Input Area */}
       <div className={`${theme.inputBg} p-3 shrink-0 z-20 transition-colors duration-300`}>
-        {activeConversation.human_active ? (
+        {activeConversation.status === 'agent_pending' ? (
           windowOpen ? (
-            /* 🟢 Window OPEN - Normal Input */
             <div className="flex gap-2 items-end">
               <textarea
                 value={inputValue}
@@ -185,7 +188,6 @@ export default function ChatWindow({ messages, activeConversation, onResumeBot, 
               </button>
             </div>
           ) : (
-            /* 🔴 Window CLOSED - Template Lock (Only shows on Meta platforms) */
             <div className="bg-white border border-slate-200 rounded-lg p-4 flex items-center justify-between shadow-sm">
               <div>
                 <p className="text-sm font-bold text-slate-800">24-Hour Window Closed</p>

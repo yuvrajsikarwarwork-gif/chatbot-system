@@ -1,5 +1,3 @@
-// backend-api/src/connectors/website/websiteAdapter.ts
-
 import { Server, Socket } from "socket.io";
 import * as FlowEngine from "../../services/flowEngine";
 import { GenericMessage } from "../../services/messageRouter";
@@ -65,13 +63,22 @@ export const sendWebAdapter = async (
 
   const room = `${botId}_${platformUserId}`;
   
-  // Standard event for the widget to listen to
-  io.to(room).emit("receive_web_message", {
+  // Patch: Standardize payload for the widget
+  // We ensure 'templateContent' is included so the widget can render UI components
+  const outboundPayload = {
     botId,
     from: platformUserId,
-    message: msg,
+    message: {
+      ...msg,
+      // Fallback: If it's a template but 'text' is empty, provide a snippet for the notification
+      text: msg.text || msg.templateContent?.body || (msg.type === 'template' ? `[Template: ${msg.templateName}]` : "")
+    },
     timestamp: new Date().toISOString()
-  });
-  
-  console.log(`[Web Outbound] Sent payload to ${room}`);
+  };
+
+  io.to(room).emit("receive_web_message", outboundPayload);
+
+  if (msg.type === 'template') {
+    console.log(`[Web Outbound] Delivered Template: ${msg.templateName} to ${room}`);
+  }
 };
