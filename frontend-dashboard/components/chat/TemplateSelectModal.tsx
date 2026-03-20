@@ -2,9 +2,9 @@
 
 import React, { useEffect, useState } from 'react';
 import apiClient from '../../services/apiClient';
-import { X, Send, Loader2 } from 'lucide-react';
+import { X, Send } from 'lucide-react';
 
-export default function TemplateSelectModal({ isOpen, onClose, waNumber, onSent }: any) {
+export default function TemplateSelectModal({ isOpen, onClose, conversationId, onSent }: any) {
   const [templates, setTemplates] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -18,12 +18,14 @@ export default function TemplateSelectModal({ isOpen, onClose, waNumber, onSent 
   const handleSendTemplate = async (templateName: string) => {
     setLoading(true);
     try {
-      // Keeps your existing endpoint architecture but sends the correct template trigger
-      await apiClient.post('/chat/send-template', { wa_number: waNumber, template_name: templateName });
+      await apiClient.post(`/conversations/${conversationId}/reply`, {
+        type: "template",
+        templateName
+      });
       onSent();
       onClose();
     } catch (err) {
-      alert("Failed to send template. Ensure backend endpoint exists.");
+      alert("Failed to send template.");
     } finally {
       setLoading(false);
     }
@@ -51,7 +53,7 @@ export default function TemplateSelectModal({ isOpen, onClose, waNumber, onSent 
           {templates.length === 0 ? (
              <p className="text-sm text-center text-slate-500 py-4">No approved templates found.</p>
           ) : (
-            templates.map(t => (
+            templates.filter(t => t.status === 'approved').map(t => (
               <button 
                 key={t.id}
                 disabled={loading}

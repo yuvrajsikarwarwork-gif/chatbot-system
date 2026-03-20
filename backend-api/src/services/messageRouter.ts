@@ -14,7 +14,7 @@ export interface GenericMessage {
 }
 
 export const routeMessage = async (
-  conversationId: string | number, 
+  conversationId: string,
   message: GenericMessage,
   io?: any
 ) => {
@@ -42,7 +42,7 @@ export const routeMessage = async (
     // FIX 4: Message logging strictly uses conversation_id
     await query(
       `INSERT INTO messages (bot_id, conversation_id, channel, sender, platform_user_id, content)
-       VALUES ($1, $2, $3, 'bot', $4, $5)`,
+       VALUES ($1, $2, $3, 'bot', $4, $5::jsonb)`,
       [botId, conversationId, channel, platformUserId, JSON.stringify(message)]
     );
 
@@ -55,8 +55,14 @@ export const routeMessage = async (
    // Template Resolution: Fetch generic JSON structure for cross-channel rendering
     if (message.type === "template" && message.templateName) {
       const tplRes = await query(
-        "SELECT content, language FROM templates WHERE bot_id = $1 AND name = $2 LIMIT 1", 
-        [botId, message.templateName]
+        `SELECT content, language
+         FROM templates
+         WHERE bot_id = $1
+           AND name = $2
+           AND (platform_type = $3 OR platform_type IS NULL)
+         ORDER BY CASE WHEN platform_type = $3 THEN 0 ELSE 1 END
+         LIMIT 1`,
+        [botId, message.templateName, channel]
       );
       
       if (tplRes.rows[0]) {
@@ -71,6 +77,7 @@ export const routeMessage = async (
     if (channel === "whatsapp") await sendWhatsAppAdapter(botId, platformUserId, message);
     else if (channel === "web") await sendWebAdapter(botId, platformUserId, message, io);
     else if (channel === "email") await sendEmailAdapter(botId, platformUserId, message);
+    else console.warn(`[Router] Unsupported channel '${channel}' for conversation ${conversationId}.`);
 
   } catch (err: any) {
     console.error("[Router Error]:", err.message);

@@ -1,6 +1,7 @@
 import { Server, Socket } from "socket.io";
 import * as FlowEngine from "../../services/flowEngine";
 import { GenericMessage } from "../../services/messageRouter";
+import { routeMessage } from "../../services/messageRouter";
 
 /**
  * INBOUND: Listens for incoming socket events from the frontend widget.
@@ -30,7 +31,7 @@ export const initializeWebConnector = (io: Server) => {
         console.log(`[Web Inbound] MSG/Button from ${data.platformUserId}: ${data.text || data.buttonId}`);
         
         // Pipe into the Flow Engine
-        await FlowEngine.processIncomingMessage(
+        const result = await FlowEngine.processIncomingMessage(
           data.botId,
           data.platformUserId,
           data.userName || "Web User",
@@ -39,6 +40,12 @@ export const initializeWebConnector = (io: Server) => {
           io,
           "web"
         );
+
+        if (result?.conversationId && result.actions?.length) {
+          for (const action of result.actions) {
+            await routeMessage(result.conversationId, action, io);
+          }
+        }
       } catch (err: any) {
         console.error("[Web Inbound Error]:", err.message);
       }

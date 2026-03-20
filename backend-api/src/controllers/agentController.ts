@@ -65,10 +65,12 @@ export const getConversationDetail = async (req: Request, res: Response) => {
  */
 export const sendAgentReply = async (req: Request, res: Response) => {
   const { conversationId } = req.params;
-  const { text } = req.body;
+  const { text, type, templateName, languageCode } = req.body;
   const io = req.app.get("io");
 
-  if (!text) return res.status(400).json({ error: "Message text is required" });
+  if (!conversationId) return res.status(400).json({ error: "conversationId is required" });
+  if (type === "template" && !templateName) return res.status(400).json({ error: "templateName is required" });
+  if (type !== "template" && !text) return res.status(400).json({ error: "Message text is required" });
 
   try {
     // 1. Mark status as 'agent_pending' to pause the bot
@@ -78,10 +80,16 @@ export const sendAgentReply = async (req: Request, res: Response) => {
     );
 
     // 2. Construct GenericMessage
-    const message: GenericMessage = {
-      type: "text",
-      text: text
-    };
+    const message: GenericMessage = type === "template"
+      ? {
+          type: "template",
+          templateName,
+          languageCode
+        }
+      : {
+          type: "text",
+          text
+        };
 
     // 3. Route via centralized router
     await routeMessage(conversationId, message, io);

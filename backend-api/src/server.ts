@@ -66,14 +66,7 @@ async function start() {
                 };
 
                 // Dispatch via the central router (handles logging, websocket emit, and channel delivery)
-                await routeMessage(
-                    conv.bot_id, 
-                    conv.id, 
-                    conv.channel, 
-                    platformUserId, 
-                    systemMsg, 
-                    io
-                );
+                await routeMessage(conv.id, systemMsg, io);
             }
           }
         }

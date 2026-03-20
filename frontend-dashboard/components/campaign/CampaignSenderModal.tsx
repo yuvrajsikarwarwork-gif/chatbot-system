@@ -24,6 +24,11 @@ export default function CampaignSenderModal({ isOpen, onClose, templates }: Prop
     }
   }, [isOpen]);
 
+  const getTemplatePreview = (template: any) => {
+    const content = typeof template.content === "string" ? JSON.parse(template.content) : template.content;
+    return content?.body || template.body || "No preview available";
+  };
+
   const fetchLeads = async () => {
     try {
       const res = await apiClient.get("/leads");
@@ -38,6 +43,7 @@ export default function CampaignSenderModal({ isOpen, onClose, templates }: Prop
     setIsSending(true);
     try {
       const res = await apiClient.post("/templates/launch-campaign", {
+        bot_id: localStorage.getItem("activeBotId"),
         templateId: selectedTemplate.id,
         leadIds: selectedLeads,
         campaignName: `Manual Blast - ${new Date().toLocaleDateString()}`
@@ -76,7 +82,7 @@ export default function CampaignSenderModal({ isOpen, onClose, templates }: Prop
                     className="p-4 border-2 border-slate-100 rounded-2xl text-left hover:border-blue-500 hover:bg-blue-50 transition-all group"
                   >
                     <div className="font-bold text-slate-900">{t.name}</div>
-                    <div className="text-xs text-slate-500 line-clamp-1">{t.body}</div>
+                    <div className="text-xs text-slate-500 line-clamp-1">{getTemplatePreview(t)}</div>
                   </button>
                 ))}
               </div>

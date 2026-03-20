@@ -47,10 +47,11 @@ export default function LeadsPage() {
     if (!selectedLead) return;
     setSendingTemplate(true);
     try {
-      await apiClient.post("/templates/trigger-bulk", {
+      await apiClient.post("/templates/launch-campaign", {
+        bot_id: localStorage.getItem("activeBotId"),
         campaignName: `Direct Send: ${selectedLead.wa_name}`,
         templateId,
-        leadFilter: { id: selectedLead.id } // Backend should handle single ID filter
+        leadIds: [selectedLead.id]
       });
       alert("Template sent successfully!");
       setIsSendTemplateModalOpen(false);

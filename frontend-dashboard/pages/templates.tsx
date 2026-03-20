@@ -19,6 +19,7 @@ export default function TemplatesPage() {
   const [isCampaignModalOpen, setIsCampaignModalOpen] = useState(false);
   const [isPanelOpen, setIsPanelOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
   
   const defaultForm = {
     name: "", platform_type: "whatsapp", category: "marketing",
@@ -26,6 +27,48 @@ export default function TemplatesPage() {
     body: "", footer: "", buttons: [], variables: {}, status: "pending"
   };
   const [formData, setFormData] = useState<any>(defaultForm);
+
+  const buildTemplateContent = (data: any) => ({
+    header: data.header_type !== "none" ? { type: data.header_type || "text", text: data.header } : null,
+    body: data.body || "",
+    footer: data.footer || "",
+    buttons: Array.isArray(data.buttons) ? data.buttons : []
+  });
+
+  const parseTemplateContent = (template: any) => {
+    if (!template?.content) return buildTemplateContent(template);
+    return typeof template.content === "string" ? JSON.parse(template.content) : template.content;
+  };
+
+  const getTemplatePreview = (template: any) => {
+    const content = parseTemplateContent(template);
+    return content?.body || template.body || "No preview available";
+  };
+
+  const openCreatePanel = () => {
+    setEditingTemplateId(null);
+    setFormData({ ...defaultForm, platform_type: selectedPlatform });
+    setIsPanelOpen(true);
+  };
+
+  const openEditPanel = (template: any) => {
+    const content = parseTemplateContent(template);
+    setEditingTemplateId(template.id);
+    setFormData({
+      name: template.name || "",
+      platform_type: template.platform_type || selectedPlatform,
+      category: template.category || "marketing",
+      language: template.language || "en_US",
+      header_type: content?.header?.type || "none",
+      header: content?.header?.text || "",
+      body: content?.body || "",
+      footer: content?.footer || "",
+      buttons: Array.isArray(content?.buttons) ? content.buttons : [],
+      variables: template.variables || {},
+      status: template.status || "pending"
+    });
+    setIsPanelOpen(true);
+  };
 
   // Helper for Status Badges
   const getStatusBadge = (status: string) => {
@@ -86,9 +129,15 @@ export default function TemplatesPage() {
     if (!formData.name || !formData.body) return alert("Name and Body are required.");
     setIsSaving(true);
     try {
-      await apiClient.post("/templates", formData);
+      const payload = {
+        ...formData,
+        content: buildTemplateContent(formData)
+      };
+      if (editingTemplateId) await apiClient.put(`/templates/${editingTemplateId}`, payload);
+      else await apiClient.post("/templates", payload);
       setIsPanelOpen(false);
       setFormData(defaultForm);
+      setEditingTemplateId(null);
       fetchTemplates();
     } catch (err) { alert("Failed to save template."); } finally { setIsSaving(false); }
   };
@@ -138,7 +187,7 @@ export default function TemplatesPage() {
                   <Send size={18} /> Launch Campaign
                 </button>
                 <button 
-                  onClick={() => { setFormData({ ...defaultForm, platform_type: selectedPlatform }); setIsPanelOpen(true); }} 
+                  onClick={openCreatePanel}
                   className="flex items-center gap-2 bg-blue-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm hover:bg-blue-700 transition-all shadow-lg shadow-blue-200"
                 >
                   <Plus size={18} /> Create Template
@@ -171,6 +220,7 @@ export default function TemplatesPage() {
                     <tr key={t.id} className="hover:bg-slate-50/80 transition-colors group">
                       <td className="px-6 py-4 font-bold text-slate-900 text-sm flex flex-col">
                         <div className="flex items-center gap-2"><LayoutTemplate size={14} className="text-slate-400"/> {t.name}</div>
+                        <span className="text-[11px] text-slate-500 font-medium mt-1 line-clamp-1">{getTemplatePreview(t)}</span>
                         <span className="text-[9px] text-slate-400 mt-1 flex items-center gap-1"><Clock size={10}/> Updated {new Date(t.updated_at).toLocaleDateString()}</span>
                       </td>
                       <td className="px-6 py-4 text-xs font-bold text-slate-600 uppercase">{t.category}</td>
@@ -182,6 +232,7 @@ export default function TemplatesPage() {
                         <div className="flex justify-end gap-2">
                           <button 
                             disabled={t.status === 'approved'} 
+                            onClick={() => openEditPanel(t)}
                             className={`p-2 rounded-lg transition-all ${t.status === 'approved' ? 'text-slate-200 cursor-not-allowed' : 'text-slate-400 hover:text-blue-600 hover:bg-blue-50'}`}
                             title={t.status === 'approved' ? "Approved templates cannot be edited" : "Edit Template"}
                           >
@@ -270,8 +321,8 @@ export default function TemplatesPage() {
         {/* Create/Edit Template Panel */}
         <div className={`fixed top-0 right-0 h-full w-[450px] bg-white border-l border-slate-200 shadow-2xl transition-transform duration-300 z-50 flex flex-col ${isPanelOpen ? 'translate-x-0' : 'translate-x-full'}`}>
           <div className="p-6 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
-            <h2 className="text-lg font-black text-slate-900 uppercase tracking-tight">Configure Template</h2>
-            <button onClick={() => setIsPanelOpen(false)} className="p-2 text-slate-400 hover:text-slate-900 hover:bg-slate-200 rounded-full transition-all"><X size={18} /></button>
+            <h2 className="text-lg font-black text-slate-900 uppercase tracking-tight">{editingTemplateId ? "Edit Template" : "Configure Template"}</h2>
+            <button onClick={() => { setIsPanelOpen(false); setEditingTemplateId(null); }} className="p-2 text-slate-400 hover:text-slate-900 hover:bg-slate-200 rounded-full transition-all"><X size={18} /></button>
           </div>
 
           <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
@@ -367,7 +418,7 @@ export default function TemplatesPage() {
 
           <div className="p-6 bg-white border-t border-slate-200 shrink-0">
             <button onClick={handleSave} disabled={isSaving} className="w-full flex justify-center items-center gap-2 bg-slate-900 text-white py-3.5 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-black transition-all shadow-lg active:scale-95 disabled:opacity-50">
-              {isSaving ? "Saving..." : <><Plus size={16} /> Save Template</>}
+              {isSaving ? "Saving..." : <><Plus size={16} /> {editingTemplateId ? "Update Template" : "Save Template"}</>}
             </button>
           </div>
         </div>

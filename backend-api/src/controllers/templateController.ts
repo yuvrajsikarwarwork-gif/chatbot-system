@@ -2,6 +2,24 @@ import { Request, Response } from "express";
 import { query } from "../config/db";
 import { routeMessage, GenericMessage } from "../services/messageRouter";
 
+const normalizeTemplateContent = (body: any) => {
+  if (body.content && typeof body.content === "object") {
+    return {
+      header: body.content.header || null,
+      body: body.content.body || "",
+      footer: body.content.footer || "",
+      buttons: Array.isArray(body.content.buttons) ? body.content.buttons : []
+    };
+  }
+
+  return {
+    header: { type: body.header_type || "text", text: body.header },
+    body: body.body,
+    footer: body.footer,
+    buttons: body.buttons || []
+  };
+};
+
 /**
  * 1. Create Template (Consolidated JSONB Content)
  */
@@ -15,12 +33,7 @@ export const createTemplate = async (req: Request, res: Response) => {
     if (!bot_id) return res.status(400).json({ error: "bot_id is required" });
 
     // Patch: Consolidate UI fields into a generic content structure for cross-channel rendering
-    const content = {
-      header: { type: header_type || 'text', text: header },
-      body: body,
-      footer: footer,
-      buttons: buttons || []
-    };
+    const content = normalizeTemplateContent(req.body);
 
     const result = await query(
       `INSERT INTO templates 
@@ -75,7 +88,7 @@ export const getTemplates = async (req: Request, res: Response) => {
 export const updateTemplate = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { header_type, header, body, footer, buttons, variables } = req.body;
+    const { variables } = req.body;
 
     const checkRes = await query(`SELECT status FROM templates WHERE id = $1`, [id]);
     if (checkRes.rows.length === 0) return res.status(404).json({ error: "Template not found" });
@@ -85,12 +98,7 @@ export const updateTemplate = async (req: Request, res: Response) => {
     }
 
     // Patch: Update using the consolidated content object
-    const content = {
-      header: { type: header_type || 'text', text: header },
-      body: body,
-      footer: footer,
-      buttons: buttons || []
-    };
+    const content = normalizeTemplateContent(req.body);
 
     const result = await query(
       `UPDATE templates SET 
@@ -135,7 +143,10 @@ export const deleteTemplate = async (req: Request, res: Response) => {
  */
 export const launchCampaign = async (req: Request, res: Response) => {
   try {
-    const { bot_id, templateId, contactIds, campaignName } = req.body;
+    const { templateId, campaignName } = req.body;
+    const bot_id = req.body.bot_id || req.headers["x-bot-id"];
+    const contactIds = Array.isArray(req.body.contactIds) ? req.body.contactIds : [];
+    const leadIds = Array.isArray(req.body.leadIds) ? req.body.leadIds : [];
     const io = req.app.get("io");
 
     if (!bot_id) return res.status(400).json({ error: "bot_id is required" });
@@ -144,7 +155,23 @@ export const launchCampaign = async (req: Request, res: Response) => {
     if (tplRes.rows.length === 0) return res.status(404).json({ error: "Template not found" });
     const template = tplRes.rows[0];
 
-    const contactsRes = await query(`SELECT * FROM contacts WHERE id = ANY($1) AND bot_id = $2`, [contactIds, bot_id]);
+    let resolvedContactIds = contactIds;
+    if (resolvedContactIds.length === 0 && leadIds.length > 0) {
+      const leadContactsRes = await query(
+        `SELECT c.*
+         FROM contacts c
+         JOIN leads l ON l.bot_id = c.bot_id AND l.wa_number = c.platform_user_id
+         WHERE l.id = ANY($1) AND l.bot_id = $2`,
+        [leadIds, bot_id]
+      );
+      resolvedContactIds = leadContactsRes.rows.map((contact: any) => contact.id);
+    }
+
+    if (resolvedContactIds.length === 0) {
+      return res.status(400).json({ error: "contactIds or leadIds are required" });
+    }
+
+    const contactsRes = await query(`SELECT * FROM contacts WHERE id = ANY($1) AND bot_id = $2`, [resolvedContactIds, bot_id]);
     const contacts = contactsRes.rows;
 
     let successCount = 0;

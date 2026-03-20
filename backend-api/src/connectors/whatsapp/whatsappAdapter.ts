@@ -1,84 +1,113 @@
-import { Server, Socket } from "socket.io";
-import * as FlowEngine from "../../services/flowEngine";
+import axios from "axios";
+import { query } from "../../config/db";
 import { GenericMessage } from "../../services/messageRouter";
+import { sendWhatsAppMessage } from "../../services/whatsappService";
 
-/**
- * INBOUND: Listens for incoming socket events from the frontend widget.
- */
-export const initializeWebConnector = (io: Server) => {
-  io.on("connection", (socket: Socket) => {
-    console.log(`🌐 Web Socket Connected | ID: ${socket.id}`);
-
-    // Register User to a specific room
-    socket.on("register_web_user", (data: { botId: string; platformUserId: string }) => {
-      if (data.botId && data.platformUserId) {
-        const room = `${data.botId}_${data.platformUserId}`;
-        socket.join(room);
-        console.log(`✅ Web User Registered in Room: ${room}`);
+const buildWhatsAppPayload = (toPhone: string, msg: GenericMessage) => {
+  if (msg.type === "interactive" && msg.buttons?.length) {
+    return {
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      to: toPhone,
+      type: "interactive",
+      interactive: {
+        type: "button",
+        body: {
+          text: msg.text || "Choose an option:"
+        },
+        action: {
+          buttons: msg.buttons.slice(0, 3).map((button) => ({
+            type: "reply",
+            reply: {
+              id: button.id,
+              title: button.title
+            }
+          }))
+        }
       }
-    });
+    };
+  }
 
-    // Handle incoming text OR button clicks
-    socket.on("send_web_message", async (data: { 
-      botId: string; 
-      platformUserId: string; 
-      userName: string; 
-      text: string; 
-      buttonId?: string 
-    }) => {
-      try {
-        console.log(`[Web Inbound] MSG/Button from ${data.platformUserId}: ${data.text || data.buttonId}`);
-        
-        // Pipe into the Flow Engine
-        await FlowEngine.processIncomingMessage(
-          data.botId,
-          data.platformUserId,
-          data.userName || "Web User",
-          data.text || "",     // User might send text
-          data.buttonId || "", // OR they clicked a button
-          io,
-          "web"
-        );
-      } catch (err: any) {
-        console.error("[Web Inbound Error]:", err.message);
+  if (msg.type === "template" && msg.templateName) {
+    return {
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      to: toPhone,
+      type: "template",
+      template: {
+        name: msg.templateName,
+        language: {
+          code: msg.languageCode || "en_US"
+        }
       }
-    });
+    };
+  }
 
-    socket.on("disconnect", () => {
-      console.log(`🔌 Web Socket Disconnected | ID: ${socket.id}`);
-    });
-  });
+  if (msg.type === "media" && msg.mediaUrl) {
+    return {
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      to: toPhone,
+      type: "image",
+      image: {
+        link: msg.mediaUrl
+      }
+    };
+  }
+
+  return null;
 };
 
-/**
- * OUTBOUND: Emits formatted messages back to the specific user's widget.
- */
-export const sendWebAdapter = async (
-  botId: string, 
-  platformUserId: string, 
-  msg: GenericMessage, 
-  io: Server
+export const sendWhatsAppAdapter = async (
+  botId: string,
+  toPhone: string,
+  msg: GenericMessage
 ) => {
-  if (!io) return;
+  try {
+    const integrationRes = await query(
+      `SELECT credentials
+       FROM integrations
+       WHERE bot_id = $1 AND channel = 'whatsapp' AND is_active = true
+       LIMIT 1`,
+      [botId]
+    );
 
-  const room = `${botId}_${platformUserId}`;
-  
-  // Patch: Standardize payload for the widget
-  // We ensure 'templateContent' is included so the widget can render UI components
-  const outboundPayload = {
-    botId,
-    from: platformUserId,
-    message: {
-      ...msg,
-      // Fallback: If it's a template but 'text' is empty, provide a snippet for the notification
-      text: msg.text || msg.templateContent?.body || (msg.type === 'template' ? `[Template: ${msg.templateName}]` : "")
-    },
-    timestamp: new Date().toISOString()
-  };
+    const credentials = integrationRes.rows[0]?.credentials;
+    const phoneNumberId = credentials?.phone_number_id;
+    const accessToken = credentials?.access_token;
 
-  io.to(room).emit("receive_web_message", outboundPayload);
+    if (!phoneNumberId || !accessToken) {
+      console.error(`[WhatsApp Adapter] Missing credentials for bot ${botId}`);
+      return;
+    }
 
-  if (msg.type === 'template') {
-    console.log(`[Web Outbound] Delivered Template: ${msg.templateName} to ${room}`);
+    if (msg.type === "text" || msg.type === "system") {
+      await sendWhatsAppMessage(phoneNumberId, accessToken, toPhone, msg.text || "");
+      return;
+    }
+
+    const payload = buildWhatsAppPayload(toPhone, msg);
+    if (!payload) {
+      await sendWhatsAppMessage(
+        phoneNumberId,
+        accessToken,
+        toPhone,
+        msg.text || `[${msg.type}]`
+      );
+      return;
+    }
+
+    await axios.post(
+      `https://graph.facebook.com/v17.0/${phoneNumberId}/messages`,
+      payload,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json"
+        }
+      }
+    );
+  } catch (error: any) {
+    console.error("[WhatsApp Adapter Error]:", error.response?.data || error.message);
   }
 };

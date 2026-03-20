@@ -211,7 +211,7 @@ export default function ChatWindow({ messages, activeConversation, onResumeBot, 
       <TemplateSelectModal 
         isOpen={isTemplateModalOpen} 
         onClose={() => setIsTemplateModalOpen(false)} 
-        waNumber={userId} 
+        conversationId={activeConversation.id}
         onSent={() => setIsTemplateModalOpen(false)} 
       />
     </div>

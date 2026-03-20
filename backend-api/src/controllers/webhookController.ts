@@ -3,6 +3,7 @@
 import { Request, Response } from "express";
 import * as FlowEngine from "../services/flowEngine";
 import { query } from "../config/db";
+import { routeMessage } from "../services/messageRouter";
 
 export const verifyWebhook = (req: Request, res: Response) => {
   const mode = req.query["hub.mode"];
@@ -51,7 +52,12 @@ export const receiveMessage = async (req: Request, res: Response) => {
     }
 
     // Trigger engine (which creates/finds conversation)
-    await FlowEngine.processIncomingMessage(botId, from, waName, incomingText, buttonId, io, "whatsapp");
+    const result = await FlowEngine.processIncomingMessage(botId, from, waName, incomingText, buttonId, io, "whatsapp");
+    if (result?.conversationId && result.actions?.length) {
+      for (const action of result.actions) {
+        await routeMessage(result.conversationId, action, io);
+      }
+    }
 
     // ✅ STANDARD DASHBOARD SYNC (Inbound)
     // Note: Since processIncomingMessage creates the conversation, we fetch the ID for the emit
