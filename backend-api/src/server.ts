@@ -9,6 +9,7 @@ import cron from "node-cron";
 import "dotenv/config";
 
 import { routeMessage, GenericMessage } from "./services/messageRouter";
+import { initializeWebConnector } from "./connectors/website/websiteAdapter";
 
 async function start() {
   try {
@@ -33,6 +34,7 @@ async function start() {
     });
 
     app.set("io", io);
+    initializeWebConnector(io);
 
     // CRON
     cron.schedule("* * * * *", async () => {
@@ -61,7 +63,7 @@ async function start() {
     });
 
     // 🔴 CRITICAL FIX: Lock to 4000 to match the tunnel and frontend expectations
-    const PORT = env.PORT || 4000;
+    const PORT = Number(env.PORT) || 4000;
 
     server.listen(PORT, "0.0.0.0", () => {
       console.log(`✅ BACKEND API LIVE | http://localhost:${PORT}`);

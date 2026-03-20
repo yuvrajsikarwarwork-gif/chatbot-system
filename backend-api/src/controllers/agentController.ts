@@ -28,6 +28,42 @@ export const replyToTicket = async (req: Request, res: Response) => {
 // 2. NEW INBOX FUNCTIONS
 // ==========================================
 
+export const getInboxLeads = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?.id;
+
+    const result = await query(
+      `SELECT
+         c.id,
+         c.bot_id,
+         c.channel,
+         c.status,
+         c.updated_at,
+         ct.platform_user_id,
+         ct.name AS user_name,
+         ct.name AS wa_name,
+         ct.platform_user_id AS wa_number,
+         (c.status = 'agent_pending') AS human_active,
+         latest.last_user_msg_at
+       FROM conversations c
+       JOIN contacts ct ON c.contact_id = ct.id
+       JOIN bots b ON c.bot_id = b.id
+       LEFT JOIN LATERAL (
+         SELECT MAX(created_at) FILTER (WHERE sender = 'user') AS last_user_msg_at
+         FROM messages m
+         WHERE m.conversation_id = c.id
+       ) latest ON true
+       WHERE b.user_id = $1
+       ORDER BY COALESCE(latest.last_user_msg_at, c.updated_at) DESC`,
+      [userId]
+    );
+
+    res.json(result.rows);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
 /**
  * GET /api/conversations/:conversationId
  * Fetches the full conversation details and message history.
@@ -63,6 +99,28 @@ export const getConversationDetail = async (req: Request, res: Response) => {
  * POST /api/conversations/:conversationId/reply
  * Sends a manual message from the Admin Dashboard to the user.
  */
+export const resumeConversation = async (req: Request, res: Response) => {
+  const { conversationId } = req.params;
+
+  try {
+    const result = await query(
+      `UPDATE conversations
+       SET status = 'active', updated_at = NOW()
+       WHERE id = $1
+       RETURNING *`,
+      [conversationId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Conversation not found" });
+    }
+
+    res.json({ success: true, conversation: result.rows[0] });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
 export const sendAgentReply = async (req: Request, res: Response) => {
   const { conversationId } = req.params;
   const { text, type, templateName, languageCode } = req.body;

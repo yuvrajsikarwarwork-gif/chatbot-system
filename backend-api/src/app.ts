@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import path from "path";
 
 import routes from "./routes";
+import webhookRoutes from "./routes/webhookRoutes"; // ✅ IMPORT ADDED
 import { errorMiddleware } from "./middleware/errorMiddleware";
 
 dotenv.config();
@@ -29,7 +30,6 @@ app.use(
 );
 
 // Preflight fix
-
 app.options("*", cors());
 
 // ================= MIDDLEWARE =================
@@ -43,8 +43,10 @@ app.use(
 
 // ================= ROUTES =================
 
-// ✅ ONLY HERE
+// 1. 🔴 CRITICAL: Mount Webhook Explicitly First to bypass global auth/index issues
+app.use("/api/webhook", webhookRoutes);
 
+// 2. Then mount all other general routes
 app.use("/api", routes);
 
 // ================= ERROR =================

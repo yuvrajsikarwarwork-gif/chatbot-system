@@ -5,7 +5,7 @@ import { AuthRequest } from "../middleware/authMiddleware";
  */
 export declare const getTemplates: (req: AuthRequest, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;
 /**
- * Launch a bulk broadcast to multiple leads
+ * Backward-compatible bridge to the conversation-first template launch path
  */
 export declare const launchCampaign: (req: AuthRequest, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;
 //# sourceMappingURL=campaignController.d.ts.map

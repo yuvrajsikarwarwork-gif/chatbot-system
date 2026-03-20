@@ -7,12 +7,14 @@ const router = (0, express_1.Router)();
 // ✅ Use authMiddleware to protect all agent routes
 router.use(authMiddleware_1.authMiddleware);
 // ✅ Existing Ticket Routes
+router.get("/leads", agentController_1.getInboxLeads);
 router.get("/tickets/:botId", agentController_1.getTickets);
 router.post("/tickets", agentController_1.createTicket);
 router.post("/tickets/:ticketId/close", agentController_1.closeTicket);
 router.post("/tickets/:ticketId/reply", agentController_1.replyToTicket);
 // ✅ New Unified Inbox Routes (Phase D)
 router.get("/conversations/:conversationId", agentController_1.getConversationDetail);
+router.post("/conversations/:conversationId/resume", agentController_1.resumeConversation);
 router.post("/conversations/:conversationId/reply", agentController_1.sendAgentReply);
 exports.default = router;
 //# sourceMappingURL=agentRoutes.js.map

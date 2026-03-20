@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.sendAgentReply = exports.getConversationDetail = exports.replyToTicket = exports.closeTicket = exports.createTicket = exports.getTickets = void 0;
+exports.sendAgentReply = exports.resumeConversation = exports.getConversationDetail = exports.getInboxLeads = exports.replyToTicket = exports.closeTicket = exports.createTicket = exports.getTickets = void 0;
 const messageRouter_1 = require("../services/messageRouter");
 const db_1 = require("../config/db");
 // ==========================================
@@ -27,6 +27,38 @@ exports.replyToTicket = replyToTicket;
 // ==========================================
 // 2. NEW INBOX FUNCTIONS
 // ==========================================
+const getInboxLeads = async (req, res) => {
+    try {
+        const userId = req.user?.id;
+        const result = await (0, db_1.query)(`SELECT
+         c.id,
+         c.bot_id,
+         c.channel,
+         c.status,
+         c.updated_at,
+         ct.platform_user_id,
+         ct.name AS user_name,
+         ct.name AS wa_name,
+         ct.platform_user_id AS wa_number,
+         (c.status = 'agent_pending') AS human_active,
+         latest.last_user_msg_at
+       FROM conversations c
+       JOIN contacts ct ON c.contact_id = ct.id
+       JOIN bots b ON c.bot_id = b.id
+       LEFT JOIN LATERAL (
+         SELECT MAX(created_at) FILTER (WHERE sender = 'user') AS last_user_msg_at
+         FROM messages m
+         WHERE m.conversation_id = c.id
+       ) latest ON true
+       WHERE b.user_id = $1
+       ORDER BY COALESCE(latest.last_user_msg_at, c.updated_at) DESC`, [userId]);
+        res.json(result.rows);
+    }
+    catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+};
+exports.getInboxLeads = getInboxLeads;
 /**
  * GET /api/conversations/:conversationId
  * Fetches the full conversation details and message history.
@@ -55,20 +87,47 @@ exports.getConversationDetail = getConversationDetail;
  * POST /api/conversations/:conversationId/reply
  * Sends a manual message from the Admin Dashboard to the user.
  */
+const resumeConversation = async (req, res) => {
+    const { conversationId } = req.params;
+    try {
+        const result = await (0, db_1.query)(`UPDATE conversations
+       SET status = 'active', updated_at = NOW()
+       WHERE id = $1
+       RETURNING *`, [conversationId]);
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: "Conversation not found" });
+        }
+        res.json({ success: true, conversation: result.rows[0] });
+    }
+    catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+};
+exports.resumeConversation = resumeConversation;
 const sendAgentReply = async (req, res) => {
     const { conversationId } = req.params;
-    const { text } = req.body;
+    const { text, type, templateName, languageCode } = req.body;
     const io = req.app.get("io");
-    if (!text)
+    if (!conversationId)
+        return res.status(400).json({ error: "conversationId is required" });
+    if (type === "template" && !templateName)
+        return res.status(400).json({ error: "templateName is required" });
+    if (type !== "template" && !text)
         return res.status(400).json({ error: "Message text is required" });
     try {
         // 1. Mark status as 'agent_pending' to pause the bot
         await (0, db_1.query)("UPDATE conversations SET status = 'agent_pending', updated_at = NOW() WHERE id = $1", [conversationId]);
         // 2. Construct GenericMessage
-        const message = {
-            type: "text",
-            text: text
-        };
+        const message = type === "template"
+            ? {
+                type: "template",
+                templateName,
+                languageCode
+            }
+            : {
+                type: "text",
+                text
+            };
         // 3. Route via centralized router
         await (0, messageRouter_1.routeMessage)(conversationId, message, io);
         res.json({ success: true, message: "Reply sent" });

@@ -1,15 +1,4 @@
-/**
- * Retrieves flow by bot ID.
- */
-export declare const getFlowsByBotService: (botId: string, userId?: string) => Promise<any>;
-/**
- * Retrieves a single flow, creating a default if none exists.
- */
-export declare function getFlowService(botId: string, userId: string): Promise<any>;
-/**
- * Handles Saving/Upserting flows.
- */
-export declare function saveFlowService(botId: string, userId: string, flowJson: any): Promise<any>;
-export declare function updateFlowService(id: string, userId: string, flowJson: any): Promise<any>;
-export declare function deleteFlowService(id: string, userId: string): Promise<void>;
+export declare const clearUserTimers: (botId: string, from: string) => void;
+export declare const executeFlowFromNode: (startNode: any, leadId: number, botId: string, from: string, nodes: any[], edges: any[], phoneId: string, token: string, botName: string, io: any) => Promise<void>;
+export declare const processIncomingMessage: (botId: string, from: string, waName: string, incomingText: string, buttonId: string, io: any) => Promise<void>;
 //# sourceMappingURL=flowService.d.ts.map

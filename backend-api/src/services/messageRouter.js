@@ -35,7 +35,13 @@ const routeMessage = async (conversationId, message, io) => {
         // Template Resolution (Standardizing for Phase B)
         // Template Resolution: Fetch generic JSON structure for cross-channel rendering
         if (message.type === "template" && message.templateName) {
-            const tplRes = await (0, db_1.query)("SELECT content, language FROM templates WHERE bot_id = $1 AND name = $2 LIMIT 1", [botId, message.templateName]);
+            const tplRes = await (0, db_1.query)(`SELECT content, language
+         FROM templates
+         WHERE bot_id = $1
+           AND name = $2
+           AND (platform_type = $3 OR platform_type IS NULL)
+         ORDER BY CASE WHEN platform_type = $3 THEN 0 ELSE 1 END
+         LIMIT 1`, [botId, message.templateName, channel]);
             if (tplRes.rows[0]) {
                 message.templateContent = tplRes.rows[0].content;
                 message.languageCode = tplRes.rows[0].language || message.languageCode;

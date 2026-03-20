@@ -46,6 +46,17 @@ const platformThemes: Record<string, any> = {
     botNoticeBg: "bg-blue-50 border-blue-100 text-blue-800",
     has24HourRule: true
   },
+  web: {
+    containerBg: "bg-slate-50",
+    pattern: "none",
+    headerBg: "bg-slate-900",
+    headerText: "text-white",
+    headerSubText: "text-gray-300",
+    inputBg: "bg-white border-t border-slate-200",
+    buttonColor: "bg-slate-800 hover:bg-slate-900 text-white",
+    botNoticeBg: "bg-slate-200 border-slate-300 text-slate-800",
+    has24HourRule: false
+  },
   website: {
     containerBg: "bg-slate-50",
     pattern: "none",
@@ -83,7 +94,9 @@ export default function ChatWindow({ messages, activeConversation, onResumeBot, 
   const handleResume = async () => {
     if (!activeConversation) return;
     try {
-      const res = await apiClient.post("/chat/resume", { wa_number: userId, platform });
+      const res = await apiClient.post(
+        `/chat/conversations/${activeConversation.id}/resume`
+      );
       if (res.data.success) {
         onResumeBot(); 
       }
@@ -99,14 +112,15 @@ export default function ChatWindow({ messages, activeConversation, onResumeBot, 
     try {
       // ✅ Updated to use the unified Conversation-First router
       // Note: Adjust the prefix (/agent/ or /api/) if your Axios instance doesn't append it automatically.
-      await apiClient.post(`/conversations/${activeConversation.id}/reply`, { text: inputValue });
+      await apiClient.post(`/chat/conversations/${activeConversation.id}/reply`, { text: inputValue });
       
       // Manually add the generic payload structure to state for immediate rendering
       onMessageSent({ 
         id: Date.now(), 
+        text: inputValue,
         content: { type: "text", text: inputValue }, 
         sender: "agent", 
-        created_at: new Date().toISOString() 
+        timestamp: new Date().toISOString() 
       });
       setInputValue(""); 
     } catch (error) {

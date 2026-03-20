@@ -8,7 +8,6 @@ import flowRoutes from "./flowRoutes";
 import templateRoutes from "./templateRoutes";
 import leadRoutes from "./leadRoutes";
 import agentRoutes from "./agentRoutes";
-import webhookRoutes from "./webhookRoutes";
 import userRoutes from "./userRoutes";
 
 import { getTemplateLogs } from "../controllers/templateController";
@@ -29,7 +28,6 @@ router.use("/chat", agentRoutes);
 // ✅ ADD THIS (fix conversations)
 router.use("/conversations", agentRoutes);
 
-router.use("/webhook", webhookRoutes);
 
 router.get("/template-logs", getTemplateLogs);
 
