@@ -1,34 +1,25 @@
 import { Request, Response } from "express";
-import { routeMessage, GenericMessage } from "../services/messageRouter";
+
 import { query } from "../config/db";
+import { GenericMessage, routeMessage } from "../services/messageRouter";
 
-// ==========================================
-// 1. RESTORED TICKET FUNCTIONS (Prevents Crash)
-// ==========================================
-// Note: Paste your original ticket logic inside these blocks if you have it.
-// These empty exports stop the "Route.get() requires a callback" error immediately.
-
-export const getTickets = async (req: Request, res: Response) => {
-  res.status(200).json([]); 
+export const getTickets = async (_req: Request, res: Response) => {
+  res.status(200).json([]);
 };
 
-export const createTicket = async (req: Request, res: Response) => {
+export const createTicket = async (_req: Request, res: Response) => {
   res.status(200).json({});
 };
 
-export const closeTicket = async (req: Request, res: Response) => {
+export const closeTicket = async (_req: Request, res: Response) => {
   res.status(200).json({});
 };
 
-export const replyToTicket = async (req: Request, res: Response) => {
+export const replyToTicket = async (_req: Request, res: Response) => {
   res.status(200).json({});
 };
 
-// ==========================================
-// 2. NEW INBOX FUNCTIONS
-// ==========================================
-
-export const getInboxLeads = async (req: Request, res: Response) => {
+export const getInboxConversations = async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user?.id;
 
@@ -40,21 +31,20 @@ export const getInboxLeads = async (req: Request, res: Response) => {
          c.status,
          c.updated_at,
          ct.platform_user_id,
-         ct.name AS user_name,
-         ct.name AS wa_name,
-         ct.platform_user_id AS wa_number,
-         (c.status = 'agent_pending') AS human_active,
-         latest.last_user_msg_at
+         ct.name AS display_name,
+         ct.platform_user_id AS external_id,
+         (c.status = 'agent_pending') AS agent_pending,
+         latest.last_inbound_at
        FROM conversations c
        JOIN contacts ct ON c.contact_id = ct.id
        JOIN bots b ON c.bot_id = b.id
        LEFT JOIN LATERAL (
-         SELECT MAX(created_at) FILTER (WHERE sender = 'user') AS last_user_msg_at
+         SELECT MAX(created_at) FILTER (WHERE sender = 'user') AS last_inbound_at
          FROM messages m
          WHERE m.conversation_id = c.id
        ) latest ON true
        WHERE b.user_id = $1
-       ORDER BY COALESCE(latest.last_user_msg_at, c.updated_at) DESC`,
+       ORDER BY COALESCE(latest.last_inbound_at, c.updated_at) DESC`,
       [userId]
     );
 
@@ -64,22 +54,27 @@ export const getInboxLeads = async (req: Request, res: Response) => {
   }
 };
 
-/**
- * GET /api/conversations/:conversationId
- * Fetches the full conversation details and message history.
- */
+// Backward-compatible alias while the frontend finishes migrating.
+export const getInboxLeads = getInboxConversations;
+
 export const getConversationDetail = async (req: Request, res: Response) => {
   const { conversationId } = req.params;
+
   try {
     const convRes = await query(
-      `SELECT c.*, ct.name, ct.platform_user_id 
-       FROM conversations c 
-       JOIN contacts ct ON c.contact_id = ct.id 
-       WHERE c.id = $1`, 
+      `SELECT
+         c.*,
+         ct.name AS display_name,
+         ct.platform_user_id AS external_id
+       FROM conversations c
+       JOIN contacts ct ON c.contact_id = ct.id
+       WHERE c.id = $1`,
       [conversationId]
     );
 
-    if (convRes.rows.length === 0) return res.status(404).json({ error: "Conversation not found" });
+    if (convRes.rows.length === 0) {
+      return res.status(404).json({ error: "Conversation not found" });
+    }
 
     const messagesRes = await query(
       `SELECT * FROM messages WHERE conversation_id = $1 ORDER BY created_at ASC`,
@@ -88,17 +83,13 @@ export const getConversationDetail = async (req: Request, res: Response) => {
 
     res.json({
       ...convRes.rows[0],
-      messages: messagesRes.rows
+      messages: messagesRes.rows,
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 };
 
-/**
- * POST /api/conversations/:conversationId/reply
- * Sends a manual message from the Admin Dashboard to the user.
- */
 export const resumeConversation = async (req: Request, res: Response) => {
   const { conversationId } = req.params;
 
@@ -126,30 +117,36 @@ export const sendAgentReply = async (req: Request, res: Response) => {
   const { text, type, templateName, languageCode } = req.body;
   const io = req.app.get("io");
 
-  if (!conversationId) return res.status(400).json({ error: "conversationId is required" });
-  if (type === "template" && !templateName) return res.status(400).json({ error: "templateName is required" });
-  if (type !== "template" && !text) return res.status(400).json({ error: "Message text is required" });
+  if (!conversationId) {
+    return res.status(400).json({ error: "conversationId is required" });
+  }
+
+  if (type === "template" && !templateName) {
+    return res.status(400).json({ error: "templateName is required" });
+  }
+
+  if (type !== "template" && !text) {
+    return res.status(400).json({ error: "Message text is required" });
+  }
 
   try {
-    // 1. Mark status as 'agent_pending' to pause the bot
     await query(
-      "UPDATE conversations SET status = 'agent_pending', updated_at = NOW() WHERE id = $1", 
+      "UPDATE conversations SET status = 'agent_pending', updated_at = NOW() WHERE id = $1",
       [conversationId]
     );
 
-    // 2. Construct GenericMessage
-    const message: GenericMessage = type === "template"
-      ? {
-          type: "template",
-          templateName,
-          languageCode
-        }
-      : {
-          type: "text",
-          text
-        };
+    const message: GenericMessage =
+      type === "template"
+        ? {
+            type: "template",
+            templateName,
+            languageCode,
+          }
+        : {
+            type: "text",
+            text,
+          };
 
-    // 3. Route via centralized router
     await routeMessage(conversationId, message, io);
 
     res.json({ success: true, message: "Reply sent" });

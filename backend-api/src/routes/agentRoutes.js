@@ -7,6 +7,7 @@ const router = (0, express_1.Router)();
 // ✅ Use authMiddleware to protect all agent routes
 router.use(authMiddleware_1.authMiddleware);
 // ✅ Existing Ticket Routes
+router.get("/conversations", agentController_1.getInboxConversations);
 router.get("/leads", agentController_1.getInboxLeads);
 router.get("/tickets/:botId", agentController_1.getTickets);
 router.post("/tickets", agentController_1.createTicket);

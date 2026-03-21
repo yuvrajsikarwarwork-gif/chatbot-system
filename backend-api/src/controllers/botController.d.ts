@@ -14,7 +14,7 @@ export declare function activateBotCtrl(req: AuthRequest, res: Response): Promis
 /**
  * FETCH ALL BOTS
  */
-export declare function getBots(req: AuthRequest, res: Response): Promise<void>;
+export declare function getBots(req: AuthRequest, res: Response): Promise<Response<any, Record<string, any>> | undefined>;
 /**
  * FETCH SINGLE BOT
  */
@@ -26,5 +26,5 @@ export declare function createBotCtrl(req: AuthRequest, res: Response): Promise<
 /**
  * DELETE BOT
  */
-export declare function deleteBotCtrl(req: AuthRequest, res: Response): Promise<void>;
+export declare function deleteBotCtrl(req: AuthRequest, res: Response): Promise<Response<any, Record<string, any>> | undefined>;
 //# sourceMappingURL=botController.d.ts.map

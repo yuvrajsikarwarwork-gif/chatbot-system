@@ -25,7 +25,7 @@ export default function Sidebar() {
     { label: "Dashboard", path: "/", Icon: Icons.Dashboard },
     { label: "Bots", path: "/bots", Icon: Icons.Bots },
     { label: "Flow Builder", path: "/flows", Icon: Icons.Flow },
-    { label: "Leads", path: "/leads", Icon: Icons.Leads },
+    { label: "Marketing Leads", path: "/leads", Icon: Icons.Leads },
     { label: "Templates", path: "/templates", Icon: Icons.Templates },
     { label: "Campaigns", path: "/campaigns", Icon: Icons.Campaigns },
     { label: "Conversations", path: "/conversations", Icon: Icons.Chat },

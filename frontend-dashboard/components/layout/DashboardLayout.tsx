@@ -4,6 +4,7 @@ import { ReactNode } from "react";
 
 interface DashboardLayoutProps {
   children: ReactNode;
+  title?: string;
 }
 
 export default function DashboardLayout({ children }: DashboardLayoutProps) {

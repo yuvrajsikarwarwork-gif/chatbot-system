@@ -16,14 +16,15 @@ export async function incomingMessageService(
   botId: string,
   channel: string,
   externalUserId: string,
-  messageText: string
+  messageText: string,
+  contactName = "User"
 ) {
   // 1. Attempt to find an active conversation for this user on this channel
   let conversation = await findConversation(botId, channel, externalUserId);
 
   // 2. If no conversation exists, initialize a new one
   if (!conversation) {
-    conversation = await createConversation(botId, channel, externalUserId);
+    conversation = await createConversation(botId, channel, externalUserId, contactName);
   }
 
   // 3. Save the message tied strictly to the conversation ID

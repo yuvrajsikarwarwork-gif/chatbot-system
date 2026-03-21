@@ -9,7 +9,13 @@ const db_1 = require("../config/db");
 const conversationService_1 = require("../services/conversationService");
 async function getConversations(req, res, next) {
     try {
-        const data = await (0, conversationService_1.getConversationsService)(req.params.botId, req.user.id);
+        const { botId } = req.params;
+        const userId = req.user?.id;
+        if (!botId)
+            return res.status(400).json({ error: "botId is required" });
+        if (!userId)
+            return res.status(401).json({ error: "Unauthorized" });
+        const data = await (0, conversationService_1.getConversationsService)(botId, userId);
         res.json(data);
     }
     catch (err) {
@@ -18,7 +24,13 @@ async function getConversations(req, res, next) {
 }
 async function getConversation(req, res, next) {
     try {
-        const data = await (0, conversationService_1.getConversationService)(req.params.id, req.user.id);
+        const { id } = req.params;
+        const userId = req.user?.id;
+        if (!id)
+            return res.status(400).json({ error: "id is required" });
+        if (!userId)
+            return res.status(401).json({ error: "Unauthorized" });
+        const data = await (0, conversationService_1.getConversationService)(id, userId);
         res.json(data);
     }
     catch (err) {
@@ -27,7 +39,13 @@ async function getConversation(req, res, next) {
 }
 async function getMessages(req, res, next) {
     try {
-        const data = await (0, conversationService_1.getConversationMessagesService)(req.params.id, req.user.id);
+        const { id } = req.params;
+        const userId = req.user?.id;
+        if (!id)
+            return res.status(400).json({ error: "id is required" });
+        if (!userId)
+            return res.status(401).json({ error: "Unauthorized" });
+        const data = await (0, conversationService_1.getConversationMessagesService)(id, userId);
         res.json(data);
     }
     catch (err) {

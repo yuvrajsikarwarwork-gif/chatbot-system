@@ -6,7 +6,15 @@ import path from "path";
 import routes from "./routes";
 import webhookRoutes from "./routes/webhookRoutes"; // ✅ IMPORT ADDED
 import { errorMiddleware } from "./middleware/errorMiddleware";
+import { JwtPayload } from "jsonwebtoken";
 
+declare global {
+  namespace Express {
+    interface Request {
+      user?: JwtPayload & { user_id?: string; role?: string };
+    }
+  }
+}
 dotenv.config();
 
 export const app = express();

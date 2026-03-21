@@ -4,6 +4,7 @@ import {
   createTicket, 
   closeTicket, 
   replyToTicket,
+  getInboxConversations,
   getInboxLeads,
   getConversationDetail, // NEW
   resumeConversation,
@@ -17,6 +18,7 @@ const router = Router();
 router.use(authMiddleware);
 
 // ✅ Existing Ticket Routes
+router.get("/conversations", getInboxConversations);
 router.get("/leads", getInboxLeads);
 router.get("/tickets/:botId", getTickets);
 router.post("/tickets", createTicket);

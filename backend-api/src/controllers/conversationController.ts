@@ -16,9 +16,14 @@ export async function getConversations(
   next: NextFunction
 ) {
   try {
+    const { botId } = req.params;
+    const userId = req.user?.id;
+    if (!botId) return res.status(400).json({ error: "botId is required" });
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
     const data = await getConversationsService(
-      req.params.botId,
-      req.user!.id 
+      botId,
+      userId
     );
     res.json(data);
   } catch (err) {
@@ -32,9 +37,14 @@ export async function getConversation(
   next: NextFunction
 ) {
   try {
+    const { id } = req.params;
+    const userId = req.user?.id;
+    if (!id) return res.status(400).json({ error: "id is required" });
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
     const data = await getConversationService(
-      req.params.id,
-      req.user!.id 
+      id,
+      userId
     );
     res.json(data);
   } catch (err) {
@@ -48,9 +58,14 @@ export async function getMessages(
   next: NextFunction
 ) {
   try {
+    const { id } = req.params;
+    const userId = req.user?.id;
+    if (!id) return res.status(400).json({ error: "id is required" });
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
     const data = await getConversationMessagesService(
-      req.params.id,
-      req.user!.id 
+      id,
+      userId
     );
     res.json(data);
   } catch (err) {

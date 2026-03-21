@@ -7,14 +7,36 @@ export async function createMessage(
   sender: string,
   text: string
 ) {
+  const contextRes = await query(
+    `
+    SELECT c.bot_id, c.channel, ct.platform_user_id
+    FROM conversations c
+    JOIN contacts ct ON c.contact_id = ct.id
+    WHERE c.id = $1
+    `,
+    [conversationId]
+  );
+
+  const context = contextRes.rows[0];
+  if (!context) {
+    throw new Error("Conversation not found");
+  }
+
   const res = await query(
     `
     INSERT INTO messages
-    (conversation_id, sender, message)
-    VALUES ($1,$2,$3)
+    (bot_id, conversation_id, channel, sender, platform_user_id, content)
+    VALUES ($1, $2, $3, $4, $5, $6::jsonb)
     RETURNING *
     `,
-    [conversationId, sender, text]
+    [
+      context.bot_id,
+      conversationId,
+      context.channel,
+      sender,
+      context.platform_user_id,
+      JSON.stringify({ type: "text", text }),
+    ]
   );
 
   return res.rows[0];

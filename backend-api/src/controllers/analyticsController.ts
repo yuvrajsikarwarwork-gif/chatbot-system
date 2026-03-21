@@ -1,8 +1,6 @@
-// src/controllers/analyticsController.ts
+import { NextFunction, Response } from "express";
 
-import { Response, NextFunction } from "express";
 import { AuthRequest } from "../middleware/authMiddleware";
-
 import {
   getBotStatsService,
   getEventsService,
@@ -14,11 +12,18 @@ export async function getBotStats(
   next: NextFunction
 ) {
   try {
-    const data = await getBotStatsService(
-      req.params.botId,
-      req.user!.id // ✅ Fixed: user_id -> id
-    );
+    const { botId } = req.params;
+    const userId = req.user?.id;
 
+    if (!botId) {
+      return res.status(400).json({ error: "botId is required" });
+    }
+
+    if (!userId) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const data = await getBotStatsService(botId, userId);
     res.json(data);
   } catch (err) {
     next(err);
@@ -31,11 +36,18 @@ export async function getEvents(
   next: NextFunction
 ) {
   try {
-    const data = await getEventsService(
-      req.params.botId,
-      req.user!.id // ✅ Fixed: user_id -> id
-    );
+    const { botId } = req.params;
+    const userId = req.user?.id;
 
+    if (!botId) {
+      return res.status(400).json({ error: "botId is required" });
+    }
+
+    if (!userId) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const data = await getEventsService(botId, userId);
     res.json(data);
   } catch (err) {
     next(err);

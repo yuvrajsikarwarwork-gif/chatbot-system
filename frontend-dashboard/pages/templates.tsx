@@ -95,9 +95,9 @@ export default function TemplatesPage() {
     }
   }, [formData.platform_type, isPanelOpen]);
 
-  const dynamicVars = useMemo(() => {
-    const matches = formData.body.match(/{{(\d+)}}/g);
-    return matches ? Array.from(new Set(matches)) : [];
+  const dynamicVars = useMemo<string[]>(() => {
+    const matches = String(formData.body || "").match(/{{(\d+)}}/g);
+    return matches ? Array.from(new Set<string>(matches)) : [];
   }, [formData.body]);
 
   const previewData: Record<string, string> = {

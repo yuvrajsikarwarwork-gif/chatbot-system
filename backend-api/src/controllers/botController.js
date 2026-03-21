@@ -15,10 +15,13 @@ const botService_1 = require("../services/botService");
 async function updateBotCtrl(req, res) {
     try {
         const { id } = req.params;
+        const userId = req.user?.id;
         if (!id)
             return res.status(400).json({ message: "Bot ID is required" });
+        if (!userId)
+            return res.status(401).json({ message: "Unauthorized" });
         // 1. Update the Database via Service (Handles partial updates like just the 'status')
-        const bot = await (0, botService_1.updateBotService)(id, req.user.id, req.body);
+        const bot = await (0, botService_1.updateBotService)(id, userId, req.body);
         // NOTE: Removed .env synchronization logic. 
         // In a multi-tenant system, tokens must be retrieved dynamically from the DB per request.
         res.json(bot);
@@ -36,8 +39,13 @@ async function updateBotCtrl(req, res) {
 async function activateBotCtrl(req, res) {
     try {
         const { id } = req.params;
+        const userId = req.user?.id;
+        if (!id)
+            return res.status(400).json({ message: "Bot ID is required" });
+        if (!userId)
+            return res.status(401).json({ message: "Unauthorized" });
         // Update activity timestamp to show the bot is being "worked on"
-        const result = await (0, db_1.query)("UPDATE bots SET updated_at = NOW() WHERE id = $1 AND user_id = $2 RETURNING *", [id, req.user.id]);
+        const result = await (0, db_1.query)("UPDATE bots SET updated_at = NOW() WHERE id = $1 AND user_id = $2 RETURNING *", [id, userId]);
         if (result.rows.length === 0)
             return res.status(404).json({ message: "Bot not found" });
         res.json(result.rows[0]);
@@ -52,6 +60,8 @@ async function activateBotCtrl(req, res) {
  */
 async function getBots(req, res) {
     try {
+        if (!req.user?.id)
+            return res.status(401).json({ message: "Unauthorized" });
         const bots = await (0, botService_1.getBotsService)(req.user.id);
         res.json(bots);
     }
@@ -65,6 +75,10 @@ async function getBots(req, res) {
 async function getBot(req, res) {
     try {
         const { id } = req.params;
+        if (!id)
+            return res.status(400).json({ message: "Bot ID is required" });
+        if (!req.user?.id)
+            return res.status(401).json({ message: "Unauthorized" });
         const bot = await (0, botService_1.getBotService)(id, req.user.id);
         if (!bot)
             return res.status(404).json({ message: "Bot not found" });
@@ -80,10 +94,13 @@ async function getBot(req, res) {
 async function createBotCtrl(req, res) {
     try {
         const { name, wa_phone_number_id, wa_access_token, trigger_keywords } = req.body;
+        const userId = req.user?.id;
         if (!wa_phone_number_id || !wa_access_token) {
             return res.status(400).json({ message: "WhatsApp credentials required." });
         }
-        const bot = await (0, botService_1.createBotService)(req.user.id, name, wa_phone_number_id, wa_access_token, trigger_keywords || "");
+        if (!userId)
+            return res.status(401).json({ message: "Unauthorized" });
+        const bot = await (0, botService_1.createBotService)(userId, name, wa_phone_number_id, wa_access_token, trigger_keywords || "");
         res.status(201).json(bot);
     }
     catch (error) {
@@ -97,6 +114,10 @@ async function createBotCtrl(req, res) {
 async function deleteBotCtrl(req, res) {
     try {
         const { id } = req.params;
+        if (!id)
+            return res.status(400).json({ message: "Bot ID is required" });
+        if (!req.user?.id)
+            return res.status(401).json({ message: "Unauthorized" });
         await (0, botService_1.deleteBotService)(id, req.user.id);
         res.status(204).send();
     }

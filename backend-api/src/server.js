@@ -54,7 +54,7 @@ async function start() {
             console.log("Socket connected", socket.id);
         });
         // 🔴 CRITICAL FIX: Lock to 4000 to match the tunnel and frontend expectations
-        const PORT = env_1.env.PORT || 4000;
+        const PORT = Number(env_1.env.PORT) || 4000;
         server.listen(PORT, "0.0.0.0", () => {
             console.log(`✅ BACKEND API LIVE | http://localhost:${PORT}`);
         });

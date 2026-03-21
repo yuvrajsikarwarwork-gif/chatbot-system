@@ -15,7 +15,7 @@ export default function ConversationsPage() {
 
   const fetchConversations = async () => {
     try {
-      const res = await apiClient.get('/chat/leads');
+      const res = await apiClient.get('/chat/conversations');
       setConversations(Array.isArray(res.data) ? res.data : []);
     } catch (err) {
       console.error('Failed to load conversations:', err);
@@ -67,7 +67,7 @@ export default function ConversationsPage() {
   const handleResumeBot = () => {
     fetchConversations();
     setActiveConversation((prev: any) => {
-      const updated = prev ? { ...prev, human_active: false, status: 'active' } : prev;
+      const updated = prev ? { ...prev, agent_pending: false, status: 'active' } : prev;
       activeConvoRef.current = updated;
       return updated;
     });
@@ -90,12 +90,12 @@ export default function ConversationsPage() {
   };
 
   return (
-    <DashboardLayout title="Live Chat Inbox">
+    <DashboardLayout title="Live Conversations">
       <div className="flex h-[calc(100vh-100px)] bg-white rounded-3xl shadow-xl border border-slate-200 overflow-hidden mx-6 mb-6">
         <div className="w-1/3 border-r border-slate-100 flex flex-col bg-slate-50">
           <div className="p-5 border-b border-slate-200 bg-white">
             <h2 className="text-lg font-black text-slate-900 uppercase tracking-tight">
-              Active Chats
+              Active Conversations
             </h2>
           </div>
           <div className="flex-1 overflow-y-auto">

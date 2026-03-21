@@ -89,8 +89,8 @@ export default function LeadsPage() {
           {/* Header */}
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
             <div>
-              <h1 className="text-2xl font-black text-slate-900 uppercase tracking-tight">Leads Database</h1>
-              <p className="text-slate-500 text-sm">Manage, engage, and export data captured from your multi-platform automation flows.</p>
+              <h1 className="text-2xl font-black text-slate-900 uppercase tracking-tight">Marketing Leads</h1>
+              <p className="text-slate-500 text-sm">Manage campaign contacts captured from forms, uploads, and automation flows. Live support conversations are handled in the Conversations inbox.</p>
             </div>
             <button className="flex items-center gap-2 bg-slate-900 text-white px-5 py-2.5 rounded-xl font-bold text-sm hover:bg-black transition-all shadow-lg shadow-slate-200">
               <Download size={18} /> Export CSV
@@ -103,7 +103,7 @@ export default function LeadsPage() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
               <input 
                 type="text" 
-                placeholder="Search leads..." 
+                placeholder="Search marketing leads..." 
                 className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
@@ -114,7 +114,7 @@ export default function LeadsPage() {
             </button>
           </div>
 
-          {/* Leads Table */}
+          {/* Marketing Leads Table */}
           <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden overflow-x-auto">
             <table className="w-full text-left border-collapse whitespace-nowrap">
               <thead className="bg-slate-50 border-b border-slate-200">

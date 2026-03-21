@@ -14,9 +14,9 @@ export default function ConversationList({ list, activeId, onSelect }: Props) {
   return (
     <div className="flex flex-col h-full">
       <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-white">
-        <h2 className="font-black uppercase tracking-widest text-sm">Live Inbox</h2>
+        <h2 className="font-black uppercase tracking-widest text-sm">Live Conversations</h2>
         <div className="bg-red-500 text-white text-[10px] px-2 py-0.5 rounded-full font-bold animate-pulse">
-          {safeList.filter(c => c.human_active).length} Waiting
+          {safeList.filter(c => c.agent_pending).length} Agent Queue
         </div>
       </div>
       
@@ -32,10 +32,10 @@ export default function ConversationList({ list, activeId, onSelect }: Props) {
             </div>
             <div className="flex-1 overflow-hidden">
               <div className="font-bold text-slate-800 text-sm truncate">
-                {convo.wa_name || convo.wa_number}
+                {convo.display_name || convo.external_id}
               </div>
               <div className="text-xs mt-1 flex items-center gap-1">
-                {convo.human_active ? (
+                {convo.agent_pending ? (
                   <span className="text-red-500 font-bold flex items-center gap-1"><User size={10}/> Human Mode</span>
                 ) : (
                   <span className="text-blue-500 font-bold flex items-center gap-1"><Bot size={10}/> Bot Active</span>

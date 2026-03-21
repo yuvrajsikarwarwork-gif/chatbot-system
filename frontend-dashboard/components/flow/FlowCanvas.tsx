@@ -5,7 +5,7 @@ import ReactFlow, {
   Edge,
   Connection,
   NodeChange,
-  EdgeChange,A
+  EdgeChange,
   SelectionMode,
 } from "reactflow";
 import "reactflow/dist/style.css";

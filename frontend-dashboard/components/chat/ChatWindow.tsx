@@ -78,12 +78,12 @@ export default function ChatWindow({ messages, activeConversation, onResumeBot, 
   const platform = activeConversation?.channel || activeConversation?.platform || 'whatsapp';
   const theme = platformThemes[platform] || platformThemes['whatsapp'];
   
-  const userId = activeConversation?.platform_user_id || activeConversation?.wa_number;
+  const userId = activeConversation?.external_id || activeConversation?.platform_user_id;
 
   const is24HourWindowOpen = () => {
     if (!theme.has24HourRule) return true; 
-    if (!activeConversation?.last_user_msg_at) return false;
-    const lastMsgTime = new Date(activeConversation.last_user_msg_at).getTime();
+    if (!activeConversation?.last_inbound_at) return false;
+    const lastMsgTime = new Date(activeConversation.last_inbound_at).getTime();
     const now = new Date().getTime();
     const hoursDifference = (now - lastMsgTime) / (1000 * 60 * 60);
     return hoursDifference < 24;
@@ -135,7 +135,7 @@ export default function ChatWindow({ messages, activeConversation, onResumeBot, 
       <div className="flex-1 flex flex-col items-center justify-center bg-slate-50 text-slate-400 border-l border-slate-200">
         <Bot size={64} className="mb-4 opacity-20" />
         <h2 className="text-xl font-black text-slate-300 uppercase tracking-widest">No Conversation Selected</h2>
-        <p className="text-sm mt-2">Select a lead from any platform to begin.</p>
+        <p className="text-sm mt-2">Select a conversation from any platform to begin.</p>
       </div>
     );
   }
@@ -150,7 +150,7 @@ export default function ChatWindow({ messages, activeConversation, onResumeBot, 
           </div>
           <div>
             <h3 className={`font-semibold leading-tight ${theme.headerText}`}>
-              {activeConversation.user_name || activeConversation.wa_name || activeConversation.name || "User"}
+              {activeConversation.display_name || activeConversation.user_name || activeConversation.name || "User"}
               <span className="ml-2 text-[10px] px-2 py-0.5 rounded bg-black/10 uppercase tracking-wider">
                 {platform}
               </span>

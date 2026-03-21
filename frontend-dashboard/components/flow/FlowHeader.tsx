@@ -10,7 +10,7 @@ interface FlowHeaderProps {
   botName?: string;
   botId: string;
   onDownloadSample: () => void;
-  fileInputRef: React.RefObject<HTMLInputElement>;
+  fileInputRef: React.RefObject<HTMLInputElement | null>;
   onFileUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onUndo: () => void;
   onRedo: () => void;

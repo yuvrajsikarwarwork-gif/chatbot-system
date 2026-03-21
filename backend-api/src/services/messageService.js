@@ -8,12 +8,12 @@ const messageModel_1 = require("../models/messageModel");
  * Handles incoming messages from external channel webhooks (WhatsApp, FB, etc.)
  * Resolves the user to a conversation and saves the message.
  */
-async function incomingMessageService(botId, channel, externalUserId, messageText) {
+async function incomingMessageService(botId, channel, externalUserId, messageText, contactName = "User") {
     // 1. Attempt to find an active conversation for this user on this channel
     let conversation = await (0, conversationModel_1.findConversation)(botId, channel, externalUserId);
     // 2. If no conversation exists, initialize a new one
     if (!conversation) {
-        conversation = await (0, conversationModel_1.createConversation)(botId, channel, externalUserId);
+        conversation = await (0, conversationModel_1.createConversation)(botId, channel, externalUserId, contactName);
     }
     // 3. Save the message tied strictly to the conversation ID
     // Sender is hardcoded to 'user' for inbound external messages

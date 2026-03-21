@@ -3,7 +3,7 @@
 (function () {
   // --- CONFIGURATION ---
   // In production, these would be passed dynamically via the embed script tag attributes
-  const BACKEND_URL = "https://bookmarks-cold-marc-cursor.trycloudflare.com"; 
+  const BACKEND_URL = "https://richard-fits-tech-tire.trycloudflare.com"; 
   const BOT_ID = "f9e13c53-d450-462e-adbc-94ac06815034"; // Replace with the dynamic bot ID
   
   // --- SESSION MANAGEMENT ---

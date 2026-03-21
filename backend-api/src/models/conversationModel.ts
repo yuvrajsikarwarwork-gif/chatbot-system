@@ -9,10 +9,12 @@ export async function findConversation(
 ) {
   const res = await query(
     `
-    SELECT * FROM conversations
-    WHERE bot_id = $1
-    AND channel = $2
-    AND user_identifier = $3
+    SELECT c.*
+    FROM conversations c
+    JOIN contacts ct ON c.contact_id = ct.id
+    WHERE c.bot_id = $1
+      AND c.channel = $2
+      AND ct.platform_user_id = $3
     `,
     [botId, channel, externalId]
   );
@@ -23,16 +25,32 @@ export async function findConversation(
 export async function createConversation(
   botId: string,
   channel: string,
-  externalId: string
+  externalId: string,
+  contactName = "User"
 ) {
+  const contactRes = await query(
+    `
+    INSERT INTO contacts (bot_id, platform_user_id, name)
+    VALUES ($1, $2, $3)
+    ON CONFLICT (bot_id, platform_user_id)
+    DO UPDATE SET name = COALESCE(contacts.name, EXCLUDED.name)
+    RETURNING *
+    `,
+    [botId, externalId, contactName]
+  );
+
+  const contact = contactRes.rows[0];
+
   const res = await query(
     `
     INSERT INTO conversations
-    (bot_id, channel, user_identifier)
-    VALUES ($1,$2,$3)
+    (bot_id, contact_id, channel, status, variables)
+    VALUES ($1, $2, $3, 'active', '{}'::jsonb)
+    ON CONFLICT (contact_id, channel)
+    DO UPDATE SET updated_at = CURRENT_TIMESTAMP
     RETURNING *
     `,
-    [botId, channel, externalId]
+    [botId, contact.id, channel]
   );
 
   return res.rows[0];
@@ -45,10 +63,11 @@ export async function findConversationsByBot(
 ) {
   const res = await query(
     `
-    SELECT *
-    FROM conversations
-    WHERE bot_id = $1
-    ORDER BY created_at DESC
+    SELECT c.*, ct.name AS display_name, ct.platform_user_id AS external_id
+    FROM conversations c
+    JOIN contacts ct ON c.contact_id = ct.id
+    WHERE c.bot_id = $1
+    ORDER BY c.created_at DESC
     `,
     [botId]
   );
@@ -61,9 +80,10 @@ export async function findConversationById(
 ) {
   const res = await query(
     `
-    SELECT *
-    FROM conversations
-    WHERE id = $1
+    SELECT c.*, ct.name AS display_name, ct.platform_user_id AS external_id
+    FROM conversations c
+    JOIN contacts ct ON c.contact_id = ct.id
+    WHERE c.id = $1
     `,
     [id]
   );

@@ -1,9 +1,7 @@
 import { useBotStore } from "../../store/botStore";
 
 export default function BotSelector() {
-  const setBot = useBotStore(
-    (s) => s.setBot
-  );
+  const setBot = useBotStore((s) => s.setSelectedBotId);
 
   return (
     <select

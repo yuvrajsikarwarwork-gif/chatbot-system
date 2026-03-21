@@ -34,9 +34,22 @@ export const botService = {
       wa_phone_number_id?: string;
       wa_access_token?: string;
       trigger_keywords?: string;
+      status?: string;
     }
   ) => {
     const res = await apiClient.put(`/bots/${id}`, botData);
+    return res.data;
+  },
+
+  updateCredentials: async (
+    id: string,
+    credentials: {
+      wa_phone_number_id?: string;
+      wa_access_token?: string;
+      wa_verify_token?: string;
+    }
+  ) => {
+    const res = await apiClient.put(`/bots/${id}`, credentials);
     return res.data;
   },
 

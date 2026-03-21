@@ -55,8 +55,12 @@ export async function me(
   next: NextFunction
 ) {
   try {
+    if (!req.user?.id) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
     const user = await getUserService(
-      req.user.user_id
+      req.user.id
     );
 
     res.json(user);

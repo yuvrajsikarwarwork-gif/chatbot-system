@@ -27,7 +27,10 @@ async function login(req, res, next) {
 }
 async function me(req, res, next) {
     try {
-        const user = await (0, authService_1.getUserService)(req.user.user_id);
+        if (!req.user?.id) {
+            return res.status(401).json({ error: "Unauthorized" });
+        }
+        const user = await (0, authService_1.getUserService)(req.user.id);
         res.json(user);
     }
     catch (err) {
