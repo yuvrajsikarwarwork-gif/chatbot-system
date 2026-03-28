@@ -10,38 +10,83 @@ import { workspaceService } from "../../services/workspaceService";
 export default function SupportTicketsConsole() {
   const activeWorkspace = useAuthStore((state) => state.activeWorkspace);
   const user = useAuthStore((state) => state.user);
-  const { canViewPage } = useVisibility();
+  const { canViewPage, isPlatformOperator } = useVisibility();
   const [requests, setRequests] = useState<any[]>([]);
   const [accessRows, setAccessRows] = useState<any[]>([]);
+  const [workspaceCount, setWorkspaceCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const canViewTicketsPage = canViewPage("tickets") || canViewPage("support");
 
   const reload = useCallback(async () => {
-    if (!canViewTicketsPage || !activeWorkspace?.workspace_id) {
+    if (!canViewTicketsPage) {
       setRequests([]);
       setAccessRows([]);
+      setWorkspaceCount(0);
+      return;
+    }
+
+    if (!isPlatformOperator && !activeWorkspace?.workspace_id) {
+      setRequests([]);
+      setAccessRows([]);
+      setWorkspaceCount(0);
       return;
     }
 
     setLoading(true);
     setError("");
     try {
-      const [requestRows, access] = await Promise.all([
-        workspaceService.listSupportRequests(activeWorkspace.workspace_id),
-        workspaceService.listSupportAccess(activeWorkspace.workspace_id),
-      ]);
-      setRequests(Array.isArray(requestRows) ? requestRows : []);
-      setAccessRows(Array.isArray(access) ? access : []);
+      if (isPlatformOperator) {
+        const workspaces = await workspaceService.list();
+        const workspaceRows = Array.isArray(workspaces) ? workspaces : [];
+        const workspaceData = await Promise.all(
+          workspaceRows.map(async (workspace: any) => {
+            const [requestRows, access] = await Promise.all([
+              workspaceService.listSupportRequests(workspace.id),
+              workspaceService.listSupportAccess(workspace.id),
+            ]);
+
+            return {
+              requests: Array.isArray(requestRows)
+                ? requestRows.map((row) => ({
+                    ...row,
+                    workspace_id: row.workspace_id || workspace.id,
+                    workspace_name: row.workspace_name || workspace.name,
+                  }))
+                : [],
+              accessRows: Array.isArray(access)
+                ? access.map((row) => ({
+                    ...row,
+                    workspace_id: row.workspace_id || workspace.id,
+                    workspace_name: row.workspace_name || workspace.name,
+                  }))
+                : [],
+            };
+          })
+        );
+
+        setWorkspaceCount(workspaceRows.length);
+        setRequests(workspaceData.flatMap((entry) => entry.requests));
+        setAccessRows(workspaceData.flatMap((entry) => entry.accessRows));
+      } else {
+        const [requestRows, access] = await Promise.all([
+          workspaceService.listSupportRequests(activeWorkspace!.workspace_id),
+          workspaceService.listSupportAccess(activeWorkspace!.workspace_id),
+        ]);
+        setWorkspaceCount(1);
+        setRequests(Array.isArray(requestRows) ? requestRows : []);
+        setAccessRows(Array.isArray(access) ? access : []);
+      }
     } catch (err: any) {
       console.error("Failed to load support console", err);
       setError(err?.response?.data?.error || "Failed to load support console");
       setRequests([]);
       setAccessRows([]);
+      setWorkspaceCount(0);
     } finally {
       setLoading(false);
     }
-  }, [activeWorkspace?.workspace_id, canViewTicketsPage]);
+  }, [activeWorkspace?.workspace_id, canViewTicketsPage, isPlatformOperator]);
 
   useEffect(() => {
     reload().catch(console.error);
@@ -61,7 +106,7 @@ export default function SupportTicketsConsole() {
           href="/support"
           ctaLabel="Open support"
         />
-      ) : !activeWorkspace?.workspace_id ? (
+      ) : !isPlatformOperator && !activeWorkspace?.workspace_id ? (
         <div className="mx-auto max-w-4xl space-y-6">
           <section className="rounded-[1.9rem] border border-[var(--glass-border)] bg-[var(--glass-surface)] p-6 shadow-[var(--shadow-glass)] backdrop-blur-2xl">
             <h1 className="bg-[linear-gradient(180deg,var(--text),color-mix(in_srgb,var(--text)_72%,var(--accent)_28%))] bg-clip-text text-[1.7rem] font-black tracking-[-0.03em] text-transparent">
@@ -79,14 +124,18 @@ export default function SupportTicketsConsole() {
               Support Requests
             </h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--muted)]">
-              Review support requests, approval history, and temporary support-access grants for the active workspace.
+              {isPlatformOperator
+                ? "Review support requests, approval history, and temporary support-access grants across all workspaces."
+                : "Review support requests, approval history, and temporary support-access grants for the active workspace."}
             </p>
 
             <div className="mt-6 grid gap-4 md:grid-cols-3">
               {[
                 { label: "Open requests", value: openRequests, icon: Ticket },
                 { label: "Total requests", value: requests.length, icon: ShieldCheck },
-                { label: "Active support grants", value: accessRows.length, icon: Users },
+                isPlatformOperator
+                  ? { label: "Workspaces covered", value: workspaceCount, icon: Users }
+                  : { label: "Active support grants", value: accessRows.length, icon: Users },
               ].map((item) => {
                 const Icon = item.icon;
                 return (
@@ -134,10 +183,15 @@ export default function SupportTicketsConsole() {
                           {request.requested_by_name || request.requested_by_email || request.requested_by}
                         </div>
                         <div className="mt-1 break-words text-[11px] uppercase tracking-[0.16em] text-[var(--muted)]">
-                          {request.status}
-                          {request.target_user_id
-                            ? ` • target ${request.target_user_name || request.target_user_email || request.target_user_id}`
-                            : ""}
+                          {[
+                            request.status,
+                            request.workspace_name,
+                            request.target_user_id
+                              ? `target ${request.target_user_name || request.target_user_email || request.target_user_id}`
+                              : null,
+                          ]
+                            .filter(Boolean)
+                            .join(" | ")}
                         </div>
                         <div className="mt-3 break-words text-sm text-[var(--text)]">{request.reason}</div>
                         {request.resolution_notes ? (
@@ -152,7 +206,7 @@ export default function SupportTicketsConsole() {
                               type="button"
                               onClick={async () => {
                                 await workspaceService.approveSupportRequest(
-                                  activeWorkspace!.workspace_id,
+                                  request.workspace_id || activeWorkspace!.workspace_id,
                                   request.id
                                 );
                                 await reload();
@@ -165,7 +219,7 @@ export default function SupportTicketsConsole() {
                               type="button"
                               onClick={async () => {
                                 await workspaceService.denySupportRequest(
-                                  activeWorkspace!.workspace_id,
+                                  request.workspace_id || activeWorkspace!.workspace_id,
                                   request.id
                                 );
                                 await reload();
@@ -185,7 +239,9 @@ export default function SupportTicketsConsole() {
                 ))
               ) : (
                 <div className="rounded-xl border border-dashed border-[var(--glass-border)] bg-[var(--glass-surface-strong)] px-4 py-6 text-sm text-[var(--muted)]">
-                  No support requests for the active workspace yet.
+                  {isPlatformOperator
+                    ? "No support requests across workspaces yet."
+                    : "No support requests for the active workspace yet."}
                 </div>
               )}
             </div>
@@ -205,6 +261,11 @@ export default function SupportTicketsConsole() {
                     <div className="break-words text-sm font-semibold text-[var(--text)]">
                       {row.user_name || row.user_email || row.user_id}
                     </div>
+                    {row.workspace_name ? (
+                      <div className="mt-1 break-words text-xs text-[var(--muted)]">
+                        Workspace: {row.workspace_name}
+                      </div>
+                    ) : null}
                     <div className="mt-1 break-words text-xs text-[var(--muted)]">
                       Granted by {row.granted_by_name || row.granted_by_email || row.granted_by || "unknown"}
                     </div>
@@ -215,7 +276,9 @@ export default function SupportTicketsConsole() {
                 ))
               ) : (
                 <div className="rounded-xl border border-dashed border-[var(--glass-border)] bg-[var(--glass-surface-strong)] px-4 py-6 text-sm text-[var(--muted)]">
-                  No active support grants for the active workspace.
+                  {isPlatformOperator
+                    ? "No active support grants across workspaces."
+                    : "No active support grants for the active workspace."}
                 </div>
               )}
             </div>

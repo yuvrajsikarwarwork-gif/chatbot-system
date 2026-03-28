@@ -60,6 +60,26 @@ export default function Navbar() {
     );
   }, [router.pathname]);
 
+  const isPlatformRoute = useMemo(
+    () =>
+      [
+        "/workspaces",
+        "/workspaces/[workspaceId]",
+        "/workspaces/[workspaceId]/billing",
+        "/workspaces/[workspaceId]/members-access",
+        "/workspaces/[workspaceId]/support-access",
+        "/settings",
+        "/plans",
+        "/logs",
+        "/system-settings",
+        "/users-access/roles",
+        "/users-access/platform-users",
+        "/permissions",
+        "/support/tickets",
+      ].includes(router.pathname),
+    [router.pathname]
+  );
+
   useEffect(() => {
     setProfileName(user?.name || "");
   }, [user?.name]);
@@ -286,7 +306,7 @@ export default function Navbar() {
       </div>
 
       <div className="flex items-center gap-3">
-        {activeWorkspaceMemberships.length > 1 ? (
+        {!isPlatformRoute && activeWorkspaceMemberships.length > 1 ? (
           <select
             value={activeWorkspace?.workspace_id || activeWorkspaceMemberships[0]?.workspace_id || ""}
             onChange={(event) => handleWorkspaceChange(event.target.value)}
@@ -300,7 +320,7 @@ export default function Navbar() {
           </select>
         ) : null}
 
-        {activeWorkspace?.workspace_id && projects.length > 0 ? (
+        {!isPlatformRoute && activeWorkspace?.workspace_id && projects.length > 0 ? (
           <select
             value={activeProject?.id || projects.find((project) => project.is_default)?.id || projects[0]?.id || ""}
             onChange={(event) => handleProjectChange(event.target.value)}
@@ -314,7 +334,7 @@ export default function Navbar() {
           </select>
         ) : null}
 
-        {activeWorkspace?.workspace_id ? (
+        {!isPlatformRoute && activeWorkspace?.workspace_id ? (
           <select
             value={selectedBotId || bots[0]?.id || ""}
             onChange={(event) => setSelectedBotId(event.target.value || null)}
@@ -374,8 +394,8 @@ export default function Navbar() {
               <div className="mt-4 space-y-3 rounded-[1.15rem] border border-[var(--glass-border)] bg-[var(--glass-surface-strong)] p-4 text-sm text-[var(--text)] shadow-[inset_0_1px_0_rgba(255,255,255,0.3)]">
                 <div className="flex items-center gap-2"><ShieldCheck size={14} /> Role: {workspaceRoleLabel}</div>
                 <div className="flex items-center gap-2"><Mail size={14} /> Email: {user?.email || "n/a"}</div>
-                <div className="flex items-center gap-2"><User size={14} /> Workspace: {workspaceLabel}</div>
-                <div className="flex items-center gap-2"><User size={14} /> Project: {activeProject?.name || "None"}</div>
+                <div className="flex items-center gap-2"><User size={14} /> Workspace: {isPlatformRoute ? "Platform scope" : workspaceLabel}</div>
+                <div className="flex items-center gap-2"><User size={14} /> Project: {isPlatformRoute ? "Not pinned" : activeProject?.name || "None"}</div>
               </div>
 
               {editingProfile ? (

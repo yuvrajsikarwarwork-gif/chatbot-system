@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { KeyRound, Plus, ShieldCheck, UserCog } from "lucide-react";
+import { PencilLine, Plus, ShieldCheck, Trash2, UserCog } from "lucide-react";
 
 import PageAccessNotice from "../access/PageAccessNotice";
 import UsersAccessTabs from "../access/UsersAccessTabs";
@@ -7,6 +7,7 @@ import DashboardLayout from "../layout/DashboardLayout";
 import { useVisibility } from "../../hooks/useVisibility";
 import { userAdminService, type PlatformUser } from "../../services/userAdminService";
 import { useAuthStore } from "../../store/authStore";
+import { confirmAction } from "../../store/uiStore";
 
 const EMPTY_FORM = {
   email: "",
@@ -22,6 +23,7 @@ export default function PlatformUsersConsole() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [editingUserId, setEditingUserId] = useState("");
 
   const canManageUsers = user?.role === "super_admin" || user?.role === "developer";
 
@@ -44,21 +46,72 @@ export default function PlatformUsersConsole() {
     loadUsers().catch(console.error);
   }, [canManageUsers, isPlatformOperator]);
 
-  const handleCreate = async () => {
-    if (!form.email.trim() || !form.password.trim() || !form.name.trim()) {
-      setError("Name, email, and password are required.");
+  const handleEditStart = (platformUser: PlatformUser) => {
+    setEditingUserId(platformUser.id);
+    setForm({
+      email: platformUser.email || "",
+      password: "",
+      name: platformUser.name || "",
+      role: platformUser.role,
+    });
+    setError("");
+    setSuccess("");
+  };
+
+  const handleEditCancel = () => {
+    setEditingUserId("");
+    setForm(EMPTY_FORM);
+  };
+
+  const handleSaveUser = async () => {
+    if (!form.email.trim() || !form.name.trim() || (!editingUserId && !form.password.trim())) {
+      setError(editingUserId ? "Name and email are required." : "Name, email, and password are required.");
       return;
     }
 
     try {
       setError("");
       setSuccess("");
-      await userAdminService.create(form);
-      setForm(EMPTY_FORM);
-      setSuccess("Platform user created.");
+      if (editingUserId) {
+        await userAdminService.update(editingUserId, {
+          email: form.email.trim(),
+          name: form.name.trim(),
+          role: form.role,
+        });
+        setSuccess("Platform user updated.");
+      } else {
+        await userAdminService.create(form);
+        setSuccess("Platform user created.");
+      }
+      handleEditCancel();
       await loadUsers();
     } catch (err: any) {
-      setError(err?.response?.data?.error || "Failed to create user");
+      setError(err?.response?.data?.error || `Failed to ${editingUserId ? "update" : "create"} user`);
+    }
+  };
+
+  const handleDeleteUser = async (platformUser: PlatformUser) => {
+    if (
+      !(await confirmAction(
+        "Delete platform user",
+        `This will permanently delete ${platformUser.email}.`,
+        "Delete"
+      ))
+    ) {
+      return;
+    }
+
+    try {
+      setError("");
+      setSuccess("");
+      await userAdminService.delete(platformUser.id);
+      setSuccess("Platform user deleted.");
+      if (editingUserId === platformUser.id) {
+        handleEditCancel();
+      }
+      await loadUsers();
+    } catch (err: any) {
+      setError(err?.response?.data?.error || "Failed to delete user");
     }
   };
 
@@ -99,15 +152,15 @@ export default function PlatformUsersConsole() {
                   <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-[rgba(129,140,248,0.34)] bg-[linear-gradient(135deg,var(--accent),var(--accent-strong))] text-white shadow-[0_16px_28px_var(--accent-glow)]">
                     <Plus size={20} />
                   </div>
-                  <div>
-                    <div className="text-[11px] font-black uppercase tracking-[0.24em] text-slate-400">
-                      User Editor
-                    </div>
-                    <div className="text-lg font-semibold tracking-tight text-[var(--text)]">
-                      Create platform user
+                    <div>
+                      <div className="text-[11px] font-black uppercase tracking-[0.24em] text-slate-400">
+                        User Editor
+                      </div>
+                      <div className="text-lg font-semibold tracking-tight text-[var(--text)]">
+                      {editingUserId ? "Edit platform user" : "Create platform user"}
+                      </div>
                     </div>
                   </div>
-                </div>
 
                 <div className="space-y-3 rounded-[1.2rem] border border-[var(--glass-border)] bg-[var(--glass-surface-strong)] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.22)]">
                   <input
@@ -125,7 +178,7 @@ export default function PlatformUsersConsole() {
                   <input
                     type="password"
                     className="w-full rounded-2xl border border-[var(--glass-border)] bg-[var(--surface-strong)] px-4 py-3 text-sm text-[var(--text)] outline-none transition focus:border-[var(--line-strong)] focus:shadow-[0_0_0_4px_var(--accent-soft)]"
-                    placeholder="Password"
+                    placeholder={editingUserId ? "Password unchanged" : "Password"}
                     value={form.password}
                     onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))}
                   />
@@ -154,13 +207,24 @@ export default function PlatformUsersConsole() {
                       {success}
                     </div>
                   ) : null}
-                  <button
-                    onClick={handleCreate}
-                    className="flex w-full items-center justify-center gap-2 rounded-2xl border border-[rgba(129,140,248,0.34)] bg-[linear-gradient(135deg,var(--accent),var(--accent-strong))] px-4 py-3 text-[11px] font-black uppercase tracking-[0.2em] text-white shadow-[0_18px_32px_var(--accent-glow)] transition duration-300 hover:-translate-y-0.5"
-                  >
-                    <Plus size={14} />
-                    Create User
-                  </button>
+                  <div className="flex flex-wrap gap-3">
+                    <button
+                      onClick={handleSaveUser}
+                      className="flex flex-1 items-center justify-center gap-2 rounded-2xl border border-[rgba(129,140,248,0.34)] bg-[linear-gradient(135deg,var(--accent),var(--accent-strong))] px-4 py-3 text-[11px] font-black uppercase tracking-[0.2em] text-white shadow-[0_18px_32px_var(--accent-glow)] transition duration-300 hover:-translate-y-0.5"
+                    >
+                      {editingUserId ? <PencilLine size={14} /> : <Plus size={14} />}
+                      {editingUserId ? "Save User" : "Create User"}
+                    </button>
+                    {editingUserId ? (
+                      <button
+                        type="button"
+                        onClick={handleEditCancel}
+                        className="rounded-2xl border border-[var(--line)] bg-[var(--surface-strong)] px-4 py-3 text-[11px] font-black uppercase tracking-[0.2em] text-[var(--text)]"
+                      >
+                        Cancel
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
               </section>
 
@@ -206,10 +270,25 @@ export default function PlatformUsersConsole() {
                           <ShieldCheck size={14} />
                           User id: {item.id.slice(0, 8)}
                         </div>
-                        <div className="flex items-center gap-2">
-                          <KeyRound size={14} />
-                          Workspace: {item.workspace_id ? item.workspace_id.slice(0, 8) : "none"}
-                        </div>
+                      </div>
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleEditStart(item)}
+                          className="inline-flex items-center gap-2 rounded-xl border border-[var(--line)] bg-[var(--surface-strong)] px-3 py-2 text-[10px] font-black uppercase tracking-[0.16em] text-[var(--text)]"
+                        >
+                          <PencilLine size={12} />
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          disabled={item.id === user?.id}
+                          onClick={() => handleDeleteUser(item).catch(console.error)}
+                          className="inline-flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-[10px] font-black uppercase tracking-[0.16em] text-rose-700 transition duration-200 hover:bg-rose-100 disabled:opacity-50"
+                        >
+                          <Trash2 size={12} />
+                          Delete
+                        </button>
                       </div>
                     </div>
                   ))}

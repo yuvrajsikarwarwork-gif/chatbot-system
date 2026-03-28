@@ -7,6 +7,13 @@
     "dev": "ts-node-dev --respawn --transpile-only --watch ../shared-types,../connectors src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
+    "migrate:billing-foundation": "node scripts/migrate-billing-foundation.js",
+    "migrate:support-audit": "node scripts/migrate-support-audit.js",
+    "migrate:retire-legacy-subscriptions": "node scripts/migrate-retire-legacy-subscriptions.js",
+    "migrate:platform-settings": "node scripts/migrate-platform-settings.js",
+    "migrate:plan-pricing-model": "node scripts/migrate-plan-pricing-model.js",
+    "migrate:workspace-limit-overrides": "node scripts/migrate-workspace-limit-overrides.js",
+    "migrate:template-meta-columns": "node scripts/migrate-template-meta-columns.js",
     "test:campaign-happy-path": "npm run build && node scripts/campaign-happy-path.js",
     "promote:account": "node scripts/promote-account.js"
   },

@@ -3,6 +3,7 @@ import { query } from "../../config/db";
 import { GenericMessage, OutboundDeliveryResult } from "../../services/messageRouter";
 import { sendWhatsAppMessage } from "../../services/whatsappService";
 import { decryptSecret } from "../../utils/encryption";
+import { normalizePublicMediaUrl } from "../../utils/publicUrl";
 import { findCampaignChannelRuntimeById } from "../../models/campaignModel";
 import { findLegacyPlatformAccountByBotAndPlatform } from "../../services/integrationService";
 
@@ -38,7 +39,7 @@ function buildTemplateHeaderMediaParameter(
   mediaType: "image" | "video" | "document",
   source: string
 ) {
-  const trimmedSource = String(source || "").trim();
+  const trimmedSource = normalizePublicMediaUrl(source);
   if (!trimmedSource) {
     return null;
   }
@@ -52,7 +53,26 @@ function buildTemplateHeaderMediaParameter(
   };
 }
 
+function resolveTemplateHeaderMediaSource(rawTemplateContent: any) {
+  const assetId = String(rawTemplateContent?.header?.assetId || "").trim();
+  const assetUrl = String(rawTemplateContent?.header?.assetUrl || "").trim();
+  const headerText = String(rawTemplateContent?.header?.text || "").trim();
+  const assetIdIsUrl = /^https?:\/\//i.test(assetId);
+
+  if (assetUrl) {
+    return assetIdIsUrl ? assetUrl : assetId || assetUrl;
+  }
+
+  if (assetId) {
+    return assetId;
+  }
+
+  return headerText;
+}
+
 const buildWhatsAppPayload = (toPhone: string, msg: GenericMessage) => {
+  const normalizedMediaUrl = normalizePublicMediaUrl(msg.mediaUrl || "");
+
   if (msg.type === "interactive" && Array.isArray(msg.sections) && msg.sections.length > 0) {
     return {
       messaging_product: "whatsapp",
@@ -120,10 +140,17 @@ const buildWhatsAppPayload = (toPhone: string, msg: GenericMessage) => {
           ? msg.templateContent
           : null;
     const headerType = String(rawTemplateContent?.header?.type || "").trim().toLowerCase();
-    const headerValue = String(rawTemplateContent?.header?.text || "").trim();
-    const components: any[] = [];
+    const headerValue = resolveTemplateHeaderMediaSource(rawTemplateContent);
+    const components: any[] = Array.isArray(msg.templateComponents)
+      ? msg.templateComponents
+          .filter((component) => component && typeof component === "object")
+          .map((component) => ({ ...component }))
+      : [];
+    const hasHeaderComponent = components.some(
+      (component) => String(component?.type || "").trim().toLowerCase() === "header"
+    );
 
-    if (["image", "video", "document"].includes(headerType) && headerValue) {
+    if (["image", "video", "document"].includes(headerType) && headerValue && !hasHeaderComponent) {
       const headerParameter = buildTemplateHeaderMediaParameter(
         headerType as "image" | "video" | "document",
         headerValue
@@ -134,7 +161,10 @@ const buildWhatsAppPayload = (toPhone: string, msg: GenericMessage) => {
       });
     }
 
-    if (Array.isArray(msg.templateParameters) && msg.templateParameters.length > 0) {
+    const hasBodyComponent = components.some(
+      (component) => String(component?.type || "").trim().toLowerCase() === "body"
+    );
+    if (!hasBodyComponent && Array.isArray(msg.templateParameters) && msg.templateParameters.length > 0) {
       components.push({
         type: "body",
         parameters: msg.templateParameters,
@@ -163,7 +193,7 @@ const buildWhatsAppPayload = (toPhone: string, msg: GenericMessage) => {
       to: toPhone,
       type: "image",
       image: {
-        link: msg.mediaUrl,
+        link: normalizedMediaUrl,
         ...(msg.text ? { caption: msg.text } : {}),
       }
     };
@@ -176,7 +206,7 @@ const buildWhatsAppPayload = (toPhone: string, msg: GenericMessage) => {
       to: toPhone,
       type: "video",
       video: {
-        link: msg.mediaUrl,
+        link: normalizedMediaUrl,
         ...(msg.text ? { caption: msg.text } : {}),
       }
     };
@@ -189,7 +219,7 @@ const buildWhatsAppPayload = (toPhone: string, msg: GenericMessage) => {
       to: toPhone,
       type: "audio",
       audio: {
-        link: msg.mediaUrl,
+        link: normalizedMediaUrl,
       }
     };
   }
@@ -201,7 +231,7 @@ const buildWhatsAppPayload = (toPhone: string, msg: GenericMessage) => {
       to: toPhone,
       type: "document",
       document: {
-        link: msg.mediaUrl,
+        link: normalizedMediaUrl,
         ...(msg.text ? { caption: msg.text } : {}),
       }
     };
@@ -289,6 +319,7 @@ export const sendWhatsAppAdapter = async (
   }
 
   try {
+    console.log("WA TEMPLATE PAYLOAD:", JSON.stringify(payload, null, 2));
     const response = await axios.post(
       `https://graph.facebook.com/${META_GRAPH_VERSION}/${phoneNumberId}/messages`,
       payload,

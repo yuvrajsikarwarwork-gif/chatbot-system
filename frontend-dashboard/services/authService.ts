@@ -20,6 +20,18 @@ export const authService = {
     return res.data;
   },
 
+  startSupportSession: async (payload: { workspaceId: string; durationHours?: number }) => {
+    const res = await apiClient.post("/auth/support-session", payload);
+    return res.data;
+  },
+
+  endSupportSession: async (payload?: { workspaceId?: string | null }) => {
+    const res = await apiClient.delete("/auth/support-session", {
+      params: payload?.workspaceId ? { workspaceId: payload.workspaceId } : undefined,
+    });
+    return res.data;
+  },
+
   previewInvite: async (token: string) => {
     const res = await apiClient.get("/auth/invite", {
       params: { token },

@@ -60,10 +60,11 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const canViewDashboardPage = canViewPage("dashboard");
+  const isPlatformDashboard = isPlatformOperator && !activeWorkspace?.workspace_id;
   const currentScopeLabel = activeProject?.name || activeWorkspace?.workspace_name || "Workspace";
 
   useEffect(() => {
-    if (!canViewDashboardPage || !activeWorkspace?.workspace_id) {
+    if (!canViewDashboardPage || !activeWorkspace?.workspace_id || isPlatformDashboard) {
       setAvailableBotCount(0);
       return;
     }
@@ -80,7 +81,7 @@ export default function DashboardPage() {
         console.error("Failed to load dashboard bot count", err);
         setAvailableBotCount(0);
       });
-  }, [activeProject?.id, activeWorkspace?.workspace_id, canViewDashboardPage]);
+  }, [activeProject?.id, activeWorkspace?.workspace_id, canViewDashboardPage, isPlatformDashboard]);
 
   useEffect(() => {
     if (!canViewDashboardPage) {
@@ -100,7 +101,7 @@ export default function DashboardPage() {
       setError("");
       return;
     }
-    if (!activeWorkspace?.workspace_id) {
+    if (!activeWorkspace?.workspace_id || isPlatformDashboard) {
       setStats({
         conversations: 0,
         messages: 0,
@@ -208,7 +209,7 @@ export default function DashboardPage() {
     };
 
     load().catch(console.error);
-  }, [activeProject?.id, activeWorkspace?.workspace_id, canViewDashboardPage, selectedBotId]);
+  }, [activeProject?.id, activeWorkspace?.workspace_id, canViewDashboardPage, isPlatformDashboard, selectedBotId]);
 
   const metrics = useMemo(
     () => [
@@ -226,7 +227,7 @@ export default function DashboardPage() {
 
   return (
     <DashboardLayout>
-      {!canViewDashboardPage ? (
+      {!canViewDashboardPage || isPlatformDashboard ? (
         <PageAccessNotice
           title="Dashboard is not available for this role"
           description={

@@ -3,12 +3,16 @@ import { useRouter } from "next/router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlignLeft,
+  AlertCircle,
   ArrowLeft,
+  CheckCircle2,
   Eye,
   Globe,
+  MapPin,
   Mail,
   MessageSquare,
   Plus,
+  Rocket,
   Send,
   Smartphone,
   Upload,
@@ -18,6 +22,7 @@ import {
 import PageAccessNotice from "../../components/access/PageAccessNotice";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import { useVisibility } from "../../hooks/useVisibility";
+import { validateTemplateInput } from "../../lib/whatsappTemplateSchema";
 import { campaignService } from "../../services/campaignService";
 import apiClient from "../../services/apiClient";
 import { notify } from "../../store/uiStore";
@@ -42,9 +47,37 @@ const defaultForm = {
   footer: "",
   buttons: [],
   variables: {},
+  samples: {
+    headerText: [""],
+    bodyText: [],
+    dynamicUrls: [],
+  },
+  header_location: {
+    latitude: "",
+    longitude: "",
+    placeName: "",
+    address: "",
+  },
   status: "pending",
   campaign_id: "",
 };
+
+const whatsappLanguageOptions = [
+  { value: "en_US", label: "English (US)" },
+  { value: "en_GB", label: "English (UK)" },
+  { value: "hi", label: "Hindi" },
+  { value: "es_ES", label: "Spanish" },
+  { value: "pt_BR", label: "Portuguese (BR)" },
+  { value: "zh_TW", label: "Chinese (Traditional)" },
+];
+
+const metaFieldOptions = [
+  { value: "name", label: "Lead name" },
+  { value: "full_name", label: "Full name" },
+  { value: "wa_number", label: "Phone number" },
+  { value: "email", label: "Email" },
+  { value: "source", label: "Lead source" },
+];
 
 const buttonLimits: Record<string, { max: number; hint: string }> = {
   whatsapp: { max: 10, hint: "Up to 10 buttons. Group quick replies first, then CTA buttons." },
@@ -56,7 +89,7 @@ const buttonLimits: Record<string, { max: number; hint: string }> = {
 
 function buildDefaultButton(platform: string) {
   if (platform === "whatsapp") {
-    return { type: "quick_reply", title: "", value: "" };
+    return { type: "quick_reply", title: "", value: "", urlMode: "static", sampleValue: "" };
   }
   if (platform === "telegram") {
     return { type: "callback", title: "", value: "" };
@@ -73,10 +106,6 @@ const previewData: Record<string, string> = {
   email: "sample@example.com",
   source: "Sample Source",
 };
-
-function isLikelyHttpUrl(value: string) {
-  return /^https?:\/\//i.test(String(value || "").trim());
-}
 
 async function compressImageFile(file: File) {
   if (!file.type.startsWith("image/")) {
@@ -151,88 +180,104 @@ function getMediaUploadLabel(headerType: string) {
   return "Upload Preview";
 }
 
-function validateTemplateForm(formData: any) {
-  if (!formData.campaign_id) {
-    return "Select a connected campaign.";
-  }
-  if (!formData.name || !formData.body) {
-    return "Internal name and body are required.";
-  }
-  if (formData.platform_type === "whatsapp") {
-    const body = String(formData.body || "");
-    const footer = String(formData.footer || "");
-    const header = String(formData.header || "");
-    const headerType = String(formData.header_type || "none");
-    const buttons = Array.isArray(formData.buttons) ? formData.buttons : [];
-
-    if (body.length > 1024) {
-      return "WhatsApp body must stay within 1024 characters.";
-    }
-    if (footer.length > 60) {
-      return "WhatsApp footer must stay within 60 characters.";
-    }
-    if (headerType === "text" && header.length > 60) {
-      return "WhatsApp text header must stay within 60 characters.";
-    }
-    if (["image", "video", "document"].includes(headerType) && !header.trim()) {
-      return "Provide a Meta media handle for the WhatsApp media header sample.";
-    }
-    if (["image", "video", "document"].includes(headerType) && isLikelyHttpUrl(header)) {
-      return "WhatsApp media headers require a Meta media handle, not a public URL.";
-    }
-
-    const quickReplies = buttons.filter((button: any) => button?.type === "quick_reply");
-    const urlButtons = buttons.filter((button: any) => button?.type === "url");
-    const phoneButtons = buttons.filter((button: any) => button?.type === "phone");
-    const copyCodeButtons = buttons.filter((button: any) => button?.type === "copy_code");
-    const ctas = buttons.filter((button: any) => button?.type === "url" || button?.type === "phone" || button?.type === "copy_code");
-    if (buttons.length > 10) {
-      return "WhatsApp supports at most 10 buttons in total.";
-    }
-    if (quickReplies.length > 10) {
-      return "WhatsApp supports at most 10 quick replies.";
-    }
-    if (urlButtons.length > 2) {
-      return "WhatsApp supports at most 2 website CTA buttons.";
-    }
-    if (phoneButtons.length > 1) {
-      return "WhatsApp supports at most 1 phone CTA button.";
-    }
-    if (copyCodeButtons.length > 1) {
-      return "WhatsApp supports at most 1 copy code button.";
-    }
-    let seenCta = false;
-    for (const button of buttons) {
-      const type = String(button?.type || "").toLowerCase();
-      const isQuickReply = type === "quick_reply";
-      const isCta = type === "url" || type === "phone" || type === "copy_code";
-      if (isCta) {
-        seenCta = true;
-      }
-      if (seenCta && isQuickReply) {
-        return "WhatsApp buttons must be grouped: quick replies first, CTA buttons after them.";
-      }
-      if (!isQuickReply && !isCta) {
-        return "Unsupported WhatsApp button type selected.";
-      }
-    }
-    if (String(formData.category || "").toLowerCase() !== "marketing" && copyCodeButtons.length > 0) {
-      return "Copy code buttons are only allowed for marketing templates.";
-    }
-  }
-
-  if (formData.platform_type === "sms" && String(formData.body || "").length > 160) {
-    return "SMS body is over 160 characters. Keep it shorter or split it intentionally.";
-  }
-
-  return "";
-}
-
 function interpolatePreview(text: string, variables: Record<string, string>) {
   return String(text || "").replace(/{{(\d+)}}/g, (_, token) => {
     const mapped = variables[token];
     return mapped ? previewData[mapped] || `{{${token}}}` : `{{${token}}}`;
   });
+}
+
+function extractVariableTokens(value: string) {
+  return Array.from(
+    new Set(
+      String(value || "")
+        .match(/{{\s*(\d+)\s*}}/g)
+        ?.map((token) => token.replace(/[{}]/g, "").trim()) || []
+    )
+  );
+}
+
+function getButtonMetaLabel(button: any) {
+  const type = String(button?.type || "").toLowerCase();
+  if (type === "quick_reply") return "Quick reply";
+  if (type === "url") return String(button?.urlMode || "static").toLowerCase() === "dynamic" ? "Dynamic URL" : "Static URL";
+  if (type === "phone") return "Phone number";
+  if (type === "copy_code") return "Copy code";
+  if (type === "flow") return "WhatsApp flow";
+  if (type === "catalog") return "Catalog / MPM";
+  return "Button";
+}
+
+function computeEditorReadiness(formData: any, selectedCampaignHasActiveWhatsAppChannel: boolean) {
+  const blockers: string[] = [];
+  const warnings: string[] = [];
+  const headerType = String(formData.header_type || "none").toLowerCase();
+  const bodyVariableTokens = extractVariableTokens(formData.body);
+  const headerVariableTokens = extractVariableTokens(formData.header);
+  const samples = formData.samples || {};
+  const buttons = Array.isArray(formData.buttons) ? formData.buttons : [];
+
+  if (!formData.campaign_id) {
+    blockers.push("Select a connected campaign.");
+  }
+
+  if (String(formData.platform_type || "").toLowerCase() === "whatsapp" && formData.campaign_id && !selectedCampaignHasActiveWhatsAppChannel) {
+    blockers.push("The selected campaign still has no active WhatsApp runtime channel.");
+  }
+
+  if (headerType === "text" && headerVariableTokens.length > 0 && !String(samples?.headerText?.[0] || "").trim()) {
+    blockers.push("Text header variables need a header sample value.");
+  }
+
+  if (["image", "video", "document"].includes(headerType) && !String(formData.header || "").trim()) {
+    blockers.push("Media headers need a Meta sample handle.");
+  }
+
+  if (headerType === "location") {
+    if (!String(formData.header_location?.latitude || "").trim() || !String(formData.header_location?.longitude || "").trim()) {
+      blockers.push("Location headers need latitude and longitude.");
+    }
+  }
+
+  if (bodyVariableTokens.length > 0) {
+    const missingSamples = bodyVariableTokens.filter((_, index) => !String(samples?.bodyText?.[index] || "").trim());
+    if (missingSamples.length > 0) {
+      blockers.push("Add sample data for each body variable before submit.");
+    }
+  }
+
+  for (const button of buttons) {
+    const type = String(button?.type || "").toLowerCase();
+    const title = String(button?.title || "").trim();
+    const value = String(button?.value || "").trim();
+    const urlMode = String(button?.urlMode || "static").toLowerCase();
+    const sampleValue = String(button?.sampleValue || "").trim();
+    const buttonLabel = title || getButtonMetaLabel(button);
+
+    if (!title) {
+      blockers.push(`Add button text for ${getButtonMetaLabel(button).toLowerCase()}.`);
+    }
+    if (type === "url" && !value) {
+      blockers.push(`Add a website URL for "${buttonLabel}".`);
+    }
+    if (type === "url" && urlMode === "dynamic" && !sampleValue) {
+      blockers.push(`Add a sample slug for "${buttonLabel}".`);
+    }
+    if (type === "phone" && !value) {
+      blockers.push(`Add a phone number for "${buttonLabel}".`);
+    }
+    if (type === "copy_code" && !value) {
+      blockers.push(`Add an offer code for "${buttonLabel}".`);
+    }
+    if (type === "flow" && !value) {
+      warnings.push(`"${buttonLabel}" is saved locally as a flow button. Confirm the connected Meta account supports the final flow payload before submit.`);
+    }
+    if (type === "catalog" && !value) {
+      warnings.push(`"${buttonLabel}" is saved locally as a catalog button. Add a catalog id when your commerce setup is ready.`);
+    }
+  }
+
+  return { blockers, warnings };
 }
 
 function renderWhatsAppText(text: string) {
@@ -541,8 +586,7 @@ export default function NewTemplatePage() {
   const pageMode = editQueryId ? "edit" : duplicateQueryId ? "duplicate" : "create";
 
   const dynamicVars = useMemo<string[]>(() => {
-    const matches = String(formData.body || "").match(/{{(\d+)}}/g);
-    return matches ? Array.from(new Set<string>(matches)) : [];
+    return extractVariableTokens(formData.body).map((token) => `{{${token}}}`);
   }, [formData.body]);
 
   useEffect(() => {
@@ -611,6 +655,14 @@ export default function NewTemplatePage() {
             : Array.isArray(template?.buttons)
               ? template.buttons
               : [],
+          samples:
+            rawContent?.samples && typeof rawContent.samples === "object"
+              ? rawContent.samples
+              : {
+                  headerText: [""],
+                  bodyText: [],
+                  dynamicUrls: [],
+                },
         };
         setEditingTemplateId(editQueryId ? template.id : "");
         setFormData({
@@ -624,6 +676,17 @@ export default function NewTemplatePage() {
           footer: content?.footer || "",
           buttons: Array.isArray(content?.buttons) ? content.buttons : [],
           variables: template.variables || {},
+          samples: content?.samples || {
+            headerText: [""],
+            bodyText: [],
+            dynamicUrls: [],
+          },
+          header_location: {
+            latitude: content?.header?.latitude || "",
+            longitude: content?.header?.longitude || "",
+            placeName: content?.header?.placeName || "",
+            address: content?.header?.address || "",
+          },
           status: "pending",
           campaign_id: template.campaign_id || "",
         });
@@ -701,13 +764,8 @@ export default function NewTemplatePage() {
   }, [formData.platform_type]);
 
   const validateDraftForm = (draftForm: any) => {
-    if (!draftForm.campaign_id) {
-      return "Select a connected campaign before saving a draft.";
-    }
-    if (!String(draftForm.name || "").trim()) {
-      return "Internal name is required for a draft.";
-    }
-    return "";
+    const validation = validateTemplateInput(draftForm, "draft");
+    return validation.errors[0] || "";
   };
 
   const handleSave = async (mode: "draft" | "publish" = "publish") => {
@@ -716,7 +774,9 @@ export default function NewTemplatePage() {
       return;
     }
     const validationError =
-      mode === "draft" ? validateDraftForm(formData) : validateTemplateForm(formData);
+      mode === "draft"
+        ? validateDraftForm(formData)
+        : validateTemplateInput(formData, "publish").errors[0] || "";
     if (validationError) {
       notify(validationError, "error");
       return;
@@ -750,6 +810,14 @@ export default function NewTemplatePage() {
               ? {
                   type: formData.header_type || "text",
                   text: formData.header,
+                  ...(formData.header_type === "location"
+                    ? {
+                        latitude: String(formData.header_location?.latitude || "").trim(),
+                        longitude: String(formData.header_location?.longitude || "").trim(),
+                        placeName: String(formData.header_location?.placeName || "").trim(),
+                        address: String(formData.header_location?.address || "").trim(),
+                      }
+                    : {}),
                   ...(["image", "video", "document"].includes(String(formData.header_type || "").toLowerCase()) &&
                   formData.header
                     ? { assetId: formData.header }
@@ -763,6 +831,7 @@ export default function NewTemplatePage() {
           body: formData.body || "",
           footer: formData.footer || "",
           buttons: Array.isArray(formData.buttons) ? formData.buttons : [],
+          samples: formData.samples || {},
         },
       };
 
@@ -782,7 +851,18 @@ export default function NewTemplatePage() {
         savedTemplate?.id
       ) {
         try {
-          await apiClient.post(`/templates/${savedTemplate.id}/submit-meta`);
+          const submitRes = await apiClient.post(`/templates/${savedTemplate.id}/submit-meta`);
+          if (submitRes?.data?.template) {
+            savedTemplate = submitRes.data.template;
+          }
+          try {
+            const syncRes = await apiClient.post(`/templates/${savedTemplate.id}/sync-meta`);
+            if (syncRes?.data?.template) {
+              savedTemplate = syncRes.data.template;
+            }
+          } catch {
+            // Meta can take a moment to expose a just-submitted template; keep the create flow moving.
+          }
         } catch (err: any) {
           metaSubmitError =
             err?.response?.data?.error ||
@@ -837,6 +917,10 @@ export default function NewTemplatePage() {
     return platform === "whatsapp" && (status === "active" || status === "");
   });
   const currentButtonLimit = buttonLimits[formData.platform_type]?.max ?? 0;
+  const editorReadiness = computeEditorReadiness(
+    formData,
+    selectedCampaignHasActiveWhatsAppChannel
+  );
 
   return (
     <DashboardLayout>
@@ -958,12 +1042,17 @@ export default function NewTemplatePage() {
                     <label className="mb-1 block text-[10px] font-black uppercase tracking-widest text-[var(--muted)]">
                       Language
                     </label>
-                    <input
-                      type="text"
+                    <select
                       className="w-full rounded-xl border border-[var(--glass-border)] bg-[var(--glass-surface-strong)] p-3 text-sm text-[var(--text)] outline-none shadow-[inset_0_1px_0_rgba(255,255,255,0.22)]"
                       value={formData.language}
                       onChange={(e) => setFormData({ ...formData, language: e.target.value })}
-                    />
+                    >
+                      {whatsappLanguageOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 </div>
 
@@ -983,6 +1072,7 @@ export default function NewTemplatePage() {
                         <option value="image">Image</option>
                         <option value="video">Video</option>
                         <option value="document">Document</option>
+                        <option value="location">Location</option>
                       </select>
                       {formData.header_type !== "none" ? (
                         <input
@@ -990,6 +1080,8 @@ export default function NewTemplatePage() {
                           placeholder={
                             formData.header_type === "text"
                               ? "Header text"
+                              : formData.header_type === "location"
+                                ? "Optional location label"
                               : "Meta media handle required for submission"
                           }
                           value={formData.header}
@@ -998,8 +1090,21 @@ export default function NewTemplatePage() {
                       ) : null}
                     </div>
                     <div className="text-[11px] text-[var(--muted)]">
-                      WhatsApp text headers should stay within 60 characters. Image, video, and document headers must use a valid Meta media handle for template submission.
+                      WhatsApp text headers should stay within 60 characters. Image, video, and document headers must use a valid Meta media handle for template submission. Location headers need latitude and longitude.
                     </div>
+                    {formData.header_type === "text" && extractVariableTokens(formData.header).length > 0 ? (
+                      <input
+                        className="w-full rounded-lg border border-[var(--line)] bg-white p-2 text-xs outline-none"
+                        placeholder="Header sample text for {{1}}"
+                        value={formData.samples?.headerText?.[0] || ""}
+                        onChange={(e) =>
+                          setFormData((prev: any) => ({
+                            ...prev,
+                            samples: { ...(prev.samples || {}), headerText: [e.target.value] },
+                          }))
+                        }
+                      />
+                    ) : null}
                     {["image", "video", "document"].includes(formData.header_type) ? (
                       <div className="rounded-xl border border-dashed border-[var(--line)] bg-[var(--surface)] p-3">
                         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -1032,6 +1137,54 @@ export default function NewTemplatePage() {
                             Preview asset ready. The Meta media handle has been applied automatically. Images are compressed before upload when possible.
                           </div>
                         ) : null}
+                      </div>
+                    ) : null}
+                    {formData.header_type === "location" ? (
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <input
+                          className="rounded-lg border border-[var(--line)] bg-white p-2 text-xs outline-none"
+                          placeholder="Latitude"
+                          value={formData.header_location?.latitude || ""}
+                          onChange={(e) =>
+                            setFormData((prev: any) => ({
+                              ...prev,
+                              header_location: { ...(prev.header_location || {}), latitude: e.target.value },
+                            }))
+                          }
+                        />
+                        <input
+                          className="rounded-lg border border-[var(--line)] bg-white p-2 text-xs outline-none"
+                          placeholder="Longitude"
+                          value={formData.header_location?.longitude || ""}
+                          onChange={(e) =>
+                            setFormData((prev: any) => ({
+                              ...prev,
+                              header_location: { ...(prev.header_location || {}), longitude: e.target.value },
+                            }))
+                          }
+                        />
+                        <input
+                          className="rounded-lg border border-[var(--line)] bg-white p-2 text-xs outline-none"
+                          placeholder="Place name"
+                          value={formData.header_location?.placeName || ""}
+                          onChange={(e) =>
+                            setFormData((prev: any) => ({
+                              ...prev,
+                              header_location: { ...(prev.header_location || {}), placeName: e.target.value },
+                            }))
+                          }
+                        />
+                        <input
+                          className="rounded-lg border border-[var(--line)] bg-white p-2 text-xs outline-none"
+                          placeholder="Address"
+                          value={formData.header_location?.address || ""}
+                          onChange={(e) =>
+                            setFormData((prev: any) => ({
+                              ...prev,
+                              header_location: { ...(prev.header_location || {}), address: e.target.value },
+                            }))
+                          }
+                        />
                       </div>
                     ) : null}
                   </div>
@@ -1092,6 +1245,50 @@ export default function NewTemplatePage() {
                         ) : null}
                       </div>
                     ))}
+                  </div>
+                ) : null}
+
+                {formData.platform_type === "whatsapp" ? (
+                  <div className="space-y-3 rounded-xl border border-[var(--line)] bg-[var(--surface-strong)] p-4">
+                    <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-[var(--muted)]">
+                      <Upload size={12} />
+                      Approval sample data
+                    </div>
+                    <div className="text-[11px] text-[var(--muted)]">
+                      Use this section the same way Meta does: variables, dynamic URLs, and media headers all need sample values during review.
+                    </div>
+                    {dynamicVars.length > 0 ? (
+                      <div className="space-y-2">
+                        {dynamicVars.map((variable, index) => (
+                          <div key={`body-sample-${variable}`} className="grid gap-2 md:grid-cols-[110px_1fr]">
+                            <div className="rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-[10px] font-black uppercase tracking-[0.16em] text-[var(--text)]">
+                              Body {variable}
+                            </div>
+                            <input
+                              className="rounded-lg border border-[var(--line)] bg-white p-2 text-xs outline-none"
+                              placeholder={`Sample value for ${variable}`}
+                              value={formData.samples?.bodyText?.[index] || ""}
+                              onChange={(e) =>
+                                setFormData((prev: any) => {
+                                  const nextSamples = Array.isArray(prev.samples?.bodyText)
+                                    ? [...prev.samples.bodyText]
+                                    : [];
+                                  nextSamples[index] = e.target.value;
+                                  return {
+                                    ...prev,
+                                    samples: { ...(prev.samples || {}), bodyText: nextSamples },
+                                  };
+                                })
+                              }
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="rounded-lg border border-dashed border-[var(--line)] bg-[var(--surface)] px-3 py-3 text-xs text-[var(--muted)]">
+                        No body variables found. Static templates can skip body samples.
+                      </div>
+                    )}
                   </div>
                 ) : null}
 
@@ -1171,9 +1368,11 @@ export default function NewTemplatePage() {
                             {(formData.platform_type === "whatsapp"
                               ? [
                                   { value: "quick_reply", label: "Quick reply" },
-                                  { value: "url", label: "Website CTA" },
-                                  { value: "phone", label: "Phone CTA" },
-                                  { value: "copy_code", label: "Copy code" },
+                                  { value: "url", label: "Visit website" },
+                                  { value: "phone", label: "Call phone number" },
+                                  { value: "copy_code", label: "Copy offer code" },
+                                  { value: "flow", label: "WhatsApp Flow" },
+                                  { value: "catalog", label: "Catalog / MPM" },
                                 ]
                               : formData.platform_type === "telegram"
                                 ? [
@@ -1213,7 +1412,21 @@ export default function NewTemplatePage() {
                                 ),
                               }))
                             }
-                            placeholder={button.type === "url" ? "https://..." : button.type === "phone" ? "+91..." : "Action value"}
+                            placeholder={
+                              button.type === "url"
+                                ? button.urlMode === "dynamic"
+                                  ? "https://iterra.ai/{{1}}"
+                                  : "https://iterra.ai"
+                                : button.type === "phone"
+                                  ? "+91..."
+                                  : button.type === "copy_code"
+                                    ? "Offer code"
+                                    : button.type === "flow"
+                                      ? "Published flow id"
+                                      : button.type === "catalog"
+                                        ? "Catalog id"
+                                        : "Action value"
+                            }
                             className="rounded-lg border border-[var(--line)] bg-[var(--surface-strong)] px-3 py-2 text-xs text-[var(--text)]"
                           />
                           <button
@@ -1228,6 +1441,53 @@ export default function NewTemplatePage() {
                           >
                             Remove
                           </button>
+                          {button.type === "url" ? (
+                            <>
+                              <select
+                                value={button.urlMode || "static"}
+                                onChange={(e) =>
+                                  setFormData((prev: any) => ({
+                                    ...prev,
+                                    buttons: (prev.buttons || []).map((item: any, itemIndex: number) =>
+                                      itemIndex === index ? { ...item, urlMode: e.target.value } : item
+                                    ),
+                                  }))
+                                }
+                                className="rounded-lg border border-[var(--line)] bg-[var(--surface-strong)] px-3 py-2 text-xs text-[var(--text)] md:col-span-2"
+                              >
+                                <option value="static">Static URL</option>
+                                <option value="dynamic">Dynamic URL</option>
+                              </select>
+                              <input
+                                value={button.sampleValue || ""}
+                                onChange={(e) =>
+                                  setFormData((prev: any) => ({
+                                    ...prev,
+                                    buttons: (prev.buttons || []).map((item: any, itemIndex: number) =>
+                                      itemIndex === index ? { ...item, sampleValue: e.target.value } : item
+                                    ),
+                                  }))
+                                }
+                                placeholder="Sample slug for dynamic URL"
+                                className={`rounded-lg border border-[var(--line)] bg-[var(--surface-strong)] px-3 py-2 text-xs text-[var(--text)] ${button.urlMode === "dynamic" ? "" : "opacity-60"}`}
+                              />
+                            </>
+                          ) : null}
+                          {button.type === "copy_code" ? (
+                            <input
+                              value={button.sampleValue || ""}
+                              onChange={(e) =>
+                                setFormData((prev: any) => ({
+                                  ...prev,
+                                  buttons: (prev.buttons || []).map((item: any, itemIndex: number) =>
+                                    itemIndex === index ? { ...item, sampleValue: e.target.value } : item
+                                  ),
+                                }))
+                              }
+                              placeholder="Sample text shown during Meta review"
+                              className="rounded-lg border border-[var(--line)] bg-[var(--surface-strong)] px-3 py-2 text-xs text-[var(--text)] md:col-span-2"
+                            />
+                          ) : null}
                         </div>
                       ))}
                     </div>
@@ -1238,6 +1498,42 @@ export default function NewTemplatePage() {
                   )}
                 </div>
               </div>
+
+              {formData.platform_type === "whatsapp" ? (
+                <div className="mt-6 rounded-xl border border-[var(--line)] bg-[var(--surface-strong)] p-4">
+                  <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-[var(--muted)]">
+                    <Rocket size={12} />
+                    Runtime readiness
+                  </div>
+                  <div className="mt-3 space-y-2">
+                    {editorReadiness.blockers.length === 0 ? (
+                      <div className="rounded-lg border border-emerald-300/45 bg-emerald-500/10 px-3 py-3 text-sm text-emerald-800">
+                        <div className="flex items-center gap-2 font-semibold">
+                          <CheckCircle2 size={16} />
+                          Builder checks are green for Meta submission.
+                        </div>
+                      </div>
+                    ) : (
+                      editorReadiness.blockers.map((item) => (
+                        <div key={item} className="rounded-lg border border-rose-300/45 bg-rose-500/10 px-3 py-3 text-sm text-rose-800">
+                          <div className="flex items-start gap-2">
+                            <AlertCircle size={16} className="mt-0.5 shrink-0" />
+                            <span>{item}</span>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                    {editorReadiness.warnings.map((item) => (
+                      <div key={item} className="rounded-lg border border-amber-300/45 bg-amber-500/10 px-3 py-3 text-sm text-amber-800">
+                        <div className="flex items-start gap-2">
+                          <AlertCircle size={16} className="mt-0.5 shrink-0" />
+                          <span>{item}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
 
               <div className="mt-6 flex gap-3">
                 <button

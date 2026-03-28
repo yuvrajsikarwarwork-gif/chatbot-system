@@ -2,10 +2,12 @@ import { NextFunction, Response } from "express";
 
 import { AuthRequest } from "../middleware/authMiddleware";
 import {
+  completeMetaEmbeddedSignupService,
+  createMetaEmbeddedSignupSessionService,
   deleteIntegrationService,
   generateConnectionDetailsService,
-  getIntegrationService,
   getIntegrationsService,
+  resolveMetaEmbeddedSignupAppRedirect,
   updateIntegrationService,
 } from "../services/integrationService";
 
@@ -27,30 +29,6 @@ export async function getIntegrations(
     }
 
     const data = await getIntegrationsService(botId, userId);
-    res.json(data);
-  } catch (err) {
-    next(err);
-  }
-}
-
-export async function getIntegration(
-  req: AuthRequest,
-  res: Response,
-  next: NextFunction
-) {
-  try {
-    const { id } = req.params;
-    const userId = req.user?.id;
-
-    if (!id) {
-      return res.status(400).json({ error: "id is required" });
-    }
-
-    if (!userId) {
-      return res.status(401).json({ error: "Unauthorized" });
-    }
-
-    const data = await getIntegrationService(id, userId);
     res.json(data);
   } catch (err) {
     next(err);
@@ -84,6 +62,79 @@ export async function generateConnectionDetailsCtrl(
     );
 
     res.json(data);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function createMetaEmbeddedSignupSessionCtrl(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const userId = req.user?.id;
+    const { botId, platform, redirectUri } = req.body;
+
+    if (!botId) {
+      return res.status(400).json({ error: "botId is required" });
+    }
+
+    if (!userId) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const data = await createMetaEmbeddedSignupSessionService(botId, userId, {
+      platform,
+      redirectUri,
+    });
+
+    res.json(data);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function completeMetaEmbeddedSignupCtrl(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const data = await completeMetaEmbeddedSignupService({
+      userId,
+      code: String(req.body?.code || "").trim(),
+      state: String(req.body?.state || "").trim(),
+      platform: req.body?.platform,
+      accountId: req.body?.accountId,
+      phoneNumberId: req.body?.phoneNumberId,
+      businessId: req.body?.businessId,
+      metaBusinessId: req.body?.metaBusinessId,
+      name: req.body?.name,
+    });
+
+    res.json(data);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function handleMetaEmbeddedSignupCallbackCtrl(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const redirectUrl = resolveMetaEmbeddedSignupAppRedirect({
+      code: String(req.query?.code || "").trim() || null,
+      state: String(req.query?.state || "").trim() || null,
+    });
+    return res.redirect(302, redirectUrl);
   } catch (err) {
     next(err);
   }

@@ -12,6 +12,8 @@ import {
   requestPasswordResetService,
   resetPasswordService,
   verifyPasswordResetOtpService,
+  createSupportWorkspaceSessionService,
+  endSupportWorkspaceSessionService,
 } from "../services/authService";
 
 import { AuthRequest } from "../middleware/authMiddleware";
@@ -164,6 +166,49 @@ export async function resetPassword(
       req.body?.otp,
       req.body?.password
     );
+    res.json(data);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function createSupportWorkspaceSession(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const actorUserId = req.user?.id || req.user?.user_id;
+    if (!actorUserId) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const data = await createSupportWorkspaceSessionService({
+      actorUserId,
+      workspaceId: String(req.body?.workspaceId || ""),
+      durationHours: req.body?.durationHours,
+    });
+    res.json(data);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function endSupportWorkspaceSession(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const actorUserId = req.user?.id || req.user?.user_id;
+    if (!actorUserId) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const data = await endSupportWorkspaceSessionService({
+      actorUserId,
+      workspaceId: req.body?.workspaceId || req.query?.workspaceId || null,
+    });
     res.json(data);
   } catch (err) {
     next(err);

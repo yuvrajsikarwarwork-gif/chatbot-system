@@ -3,6 +3,7 @@ import { Router } from "express";
 import { authMiddleware } from "../middleware/authMiddleware";
 import {
   requireAuthenticatedUser,
+  requirePlatformRoles,
   resolveProjectContext,
   resolveWorkspaceContext,
 } from "../middleware/policyMiddleware";
@@ -20,7 +21,7 @@ router.use(requireAuthenticatedUser);
 
 router.get("/me", resolveWorkspaceContext, resolveProjectContext, getMyPermissionsCtrl);
 router.get("/role/:role", resolveWorkspaceContext, getRolePermissionsCtrl);
-router.patch("/role", patchRolePermissionsCtrl);
+router.patch("/role", requirePlatformRoles(["developer", "super_admin"]), patchRolePermissionsCtrl);
 router.patch("/user", resolveWorkspaceContext, patchUserPermissionsCtrl);
 
 export default router;

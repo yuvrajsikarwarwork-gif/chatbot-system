@@ -70,6 +70,129 @@ function getMemberAgentScope(member: WorkspaceMember) {
   return normalizeAgentScope(member.agent_scope);
 }
 
+function normalizeWhatsappThreadNumber(value: unknown) {
+  const digits = String(value || "").replace(/\D/g, "");
+  if (!digits) {
+    return "";
+  }
+  if (digits.length === 10) {
+    return `91${digits}`;
+  }
+  if (digits.length === 11 && digits.startsWith("0")) {
+    return `91${digits.slice(1)}`;
+  }
+  return digits;
+}
+
+function getConversationPriorityScore(conversation: any) {
+  const status = String(conversation?.status || conversation?.inbox_status || "").toLowerCase();
+  const hasMessages = Boolean(conversation?.last_message_text);
+  const lastActivity = new Date(
+    conversation?.effective_last_message_at ||
+      conversation?.last_message_at ||
+      conversation?.updated_at ||
+      conversation?.created_at ||
+      0
+  ).getTime();
+
+  return (
+    (status === "agent_pending" ? 4 : status === "active" || status === "bot" ? 3 : 1) * 1_000_000_000 +
+    (hasMessages ? 100_000_000 : 0) +
+    lastActivity
+  );
+}
+
+function pickPreferredText(...values: unknown[]) {
+  for (const value of values) {
+    const text = String(value || "").trim();
+    if (text && text.toLowerCase() !== "recipient") {
+      return text;
+    }
+  }
+  return String(values[0] || "").trim();
+}
+
+function mergeConversationThreadDisplay(primary: any, secondary: any) {
+  const primaryUnread = Number(primary?.unread_count || 0);
+  const secondaryUnread = Number(secondary?.unread_count || 0);
+
+  return {
+    ...primary,
+    display_name: pickPreferredText(
+      primary?.display_name,
+      primary?.contact_name,
+      secondary?.display_name,
+      secondary?.contact_name,
+      primary?.external_id,
+      secondary?.external_id
+    ),
+    contact_phone_resolved: pickPreferredText(
+      primary?.contact_phone_resolved,
+      primary?.external_id,
+      secondary?.contact_phone_resolved,
+      secondary?.external_id
+    ),
+    last_message_text: pickPreferredText(
+      primary?.last_message_text,
+      secondary?.last_message_text,
+      primary?.last_message_type ? `[${primary.last_message_type}]` : "",
+      secondary?.last_message_type ? `[${secondary.last_message_type}]` : ""
+    ),
+    assigned_to_name: pickPreferredText(primary?.assigned_to_name, secondary?.assigned_to_name),
+    unread_count: Math.max(primaryUnread, secondaryUnread),
+    last_inbound_at:
+      new Date(primary?.last_inbound_at || 0).getTime() >= new Date(secondary?.last_inbound_at || 0).getTime()
+        ? primary?.last_inbound_at
+        : secondary?.last_inbound_at,
+    last_outbound_at:
+      new Date(primary?.last_outbound_at || 0).getTime() >= new Date(secondary?.last_outbound_at || 0).getTime()
+        ? primary?.last_outbound_at
+        : secondary?.last_outbound_at,
+    effective_last_message_at:
+      new Date(primary?.effective_last_message_at || primary?.last_message_at || 0).getTime() >=
+      new Date(secondary?.effective_last_message_at || secondary?.last_message_at || 0).getTime()
+        ? primary?.effective_last_message_at || primary?.last_message_at
+        : secondary?.effective_last_message_at || secondary?.last_message_at,
+  };
+}
+
+function dedupeConversationThreads(rows: any[]) {
+  const deduped = new Map<string, any>();
+
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const channel = String(row?.platform || row?.channel || "").toLowerCase();
+    if (channel !== "whatsapp") {
+      deduped.set(`row:${row.id}`, row);
+      continue;
+    }
+
+    const normalizedNumber = normalizeWhatsappThreadNumber(
+      row?.contact_phone_resolved || row?.external_id || row?.platform_user_id
+    );
+    if (!normalizedNumber) {
+      deduped.set(`row:${row.id}`, row);
+      continue;
+    }
+
+    const key = `whatsapp:${normalizedNumber}`;
+    const existing = deduped.get(key);
+    if (!existing) {
+      deduped.set(key, row);
+      continue;
+    }
+
+    const rowWins = getConversationPriorityScore(row) > getConversationPriorityScore(existing);
+    deduped.set(
+      key,
+      rowWins
+        ? mergeConversationThreadDisplay(row, existing)
+        : mergeConversationThreadDisplay(existing, row)
+    );
+  }
+
+  return Array.from(deduped.values());
+}
+
 function getCapacityTone(status: AssignmentCapacityCandidate["capacity_status"]) {
   if (status === "at_capacity") {
     return "border-red-200 bg-red-50 text-red-700";
@@ -265,7 +388,7 @@ export default function ConversationsPage() {
         dateFrom: dateFromFilter || undefined,
         dateTo: dateToFilter || undefined,
       });
-      const nextList = Array.isArray(data) ? data : [];
+      const nextList = dedupeConversationThreads(Array.isArray(data) ? data : []);
 
       startTransition(() => setConversations(nextList));
 

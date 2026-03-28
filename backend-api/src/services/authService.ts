@@ -19,18 +19,77 @@ import {
 } from "../models/authTokenModel";
 import { sendPasswordResetOtpEmail } from "./mailService";
 import { query } from "../config/db";
+import { assertPlatformRoles, resolveRolePermissionMap } from "./workspaceAccessService";
+import { findWorkspaceById } from "../models/workspaceModel";
+import {
+  deleteSupportAccess,
+  deleteLatestActiveSupportAccessByUser,
+  findLatestActiveSupportAccessByUser,
+  upsertSupportAccess,
+} from "../models/supportAccessModel";
+import { logAuditSafe } from "./auditLogService";
+
+async function buildSupportModeWorkspace(user: any) {
+  const supportAccess = await findLatestActiveSupportAccessByUser(user.id);
+  if (!supportAccess?.workspace_id) {
+    return null;
+  }
+
+  const workspace = await findWorkspaceById(String(supportAccess.workspace_id), user.id);
+  if (!workspace) {
+    return null;
+  }
+
+  const workspacePermissions = await resolveRolePermissionMap("workspace_admin");
+  return {
+    workspace_id: supportAccess.workspace_id,
+    workspace_name: workspace.name,
+    role: "workspace_admin",
+    status: workspace.status || "active",
+    permissions_json: {
+      support_mode: true,
+      support_access_id: supportAccess.id,
+      support_expires_at: supportAccess.expires_at,
+    },
+    effective_permissions: {
+      ...workspacePermissions,
+      support_access: true,
+      support_mode: true,
+    },
+    permission_overrides: {},
+  };
+}
 
 async function buildAuthContext(user: any) {
   const memberships = await listUserWorkspaceMembershipsService(user.id);
   const projectAccesses = await listUserProjectAccessService(user.id).catch(() => []);
-  const activeWorkspace =
-    memberships.find((membership: any) => membership.workspace_id === user.workspace_id) ||
-    memberships[0] ||
-    null;
+  const isPlatformOperator =
+    String(user?.role || "").trim().toLowerCase() === "super_admin" ||
+    String(user?.role || "").trim().toLowerCase() === "developer";
+  const eligibleMemberships = isPlatformOperator
+    ? memberships
+    : memberships.filter((membership: any) => {
+        const workspaceStatus = String(membership?.workspace_status || "active").trim().toLowerCase();
+        return workspaceStatus !== "suspended" && workspaceStatus !== "locked";
+      });
+
+  if (!isPlatformOperator && memberships.length > 0 && eligibleMemberships.length === 0) {
+    throw {
+      status: 403,
+      message: "This workspace is suspended or locked. Please contact support.",
+    };
+  }
+
+  const directActiveWorkspace =
+    eligibleMemberships.find((membership: any) => membership.workspace_id === user.workspace_id) ||
+    (!isPlatformOperator ? eligibleMemberships[0] || null : null);
+  const supportModeWorkspace =
+    isPlatformOperator && !directActiveWorkspace ? await buildSupportModeWorkspace(user) : null;
+  const activeWorkspace = directActiveWorkspace || supportModeWorkspace || null;
 
   return {
     user,
-    memberships,
+    memberships: eligibleMemberships,
     projectAccesses,
     activeWorkspace,
     resolvedAccess: buildResolvedAccessSnapshot({
@@ -249,4 +308,135 @@ export async function resetPasswordService(email: string, otp: string, password:
   await revokeActiveAuthTokensForUser(record.user_id, "password_reset_otp");
 
   return { success: true };
+}
+
+export async function createSupportWorkspaceSessionService(input: {
+  actorUserId: string;
+  workspaceId: string;
+  durationHours?: number;
+}) {
+  await assertPlatformRoles(input.actorUserId, ["super_admin", "developer"]);
+
+  const user = await findUserById(input.actorUserId);
+  if (!user) {
+    throw { status: 404, message: "User not found" };
+  }
+
+  const workspace = await findWorkspaceById(input.workspaceId, input.actorUserId);
+  if (!workspace) {
+    throw { status: 404, message: "Workspace not found" };
+  }
+
+  const durationHours = Math.max(1, Number(input.durationHours || 2));
+  const expiresAt = new Date(Date.now() + durationHours * 60 * 60 * 1000).toISOString();
+  const supportAccess = await upsertSupportAccess({
+    workspaceId: input.workspaceId,
+    userId: input.actorUserId,
+    grantedBy: input.actorUserId,
+    reason: "Workspace impersonation support session",
+    expiresAt,
+  });
+
+  const memberships = await listUserWorkspaceMembershipsService(user.id);
+  const projectAccesses = await listUserProjectAccessService(user.id).catch(() => []);
+  const workspacePermissions = await resolveRolePermissionMap("workspace_admin");
+  const activeWorkspace = {
+    workspace_id: input.workspaceId,
+    workspace_name: workspace.name,
+    role: "workspace_admin",
+    status: "active",
+    permissions_json: {
+      support_mode: true,
+      support_access_id: supportAccess.id,
+      support_expires_at: supportAccess.expires_at,
+    },
+    effective_permissions: {
+      ...workspacePermissions,
+      support_access: true,
+      support_mode: true,
+    },
+    permission_overrides: {},
+  };
+
+  const { password: _, ...userWithoutPassword } = user;
+  const response = {
+    user: userWithoutPassword,
+    memberships,
+    projectAccesses,
+    activeWorkspace,
+    resolvedAccess: buildResolvedAccessSnapshot({
+      platformRole: user.role,
+      activeWorkspace,
+      activeProject: null,
+      projectAccesses,
+    }),
+    expiresAt,
+  };
+
+  await logAuditSafe({
+    userId: input.actorUserId,
+    workspaceId: input.workspaceId,
+    action: "enter_support_mode",
+    entity: "support_session",
+    entityId: supportAccess.id,
+    newData: {
+      workspaceId: input.workspaceId,
+      expiresAt,
+    },
+  });
+
+  return response;
+}
+
+export async function endSupportWorkspaceSessionService(input: {
+  actorUserId: string;
+  workspaceId?: string | null;
+}) {
+  await assertPlatformRoles(input.actorUserId, ["super_admin", "developer"]);
+
+  const user = await findUserById(input.actorUserId);
+  if (!user) {
+    throw { status: 404, message: "User not found" };
+  }
+
+  const targetWorkspaceId = String(input.workspaceId || "").trim() || null;
+  let supportAccess =
+    targetWorkspaceId
+      ? await query(
+          `SELECT *
+           FROM support_access
+           WHERE workspace_id = $1
+             AND user_id = $2
+             AND expires_at > NOW()
+           LIMIT 1`,
+          [targetWorkspaceId, input.actorUserId]
+        ).then((res) => res.rows[0] || null)
+      : await findLatestActiveSupportAccessByUser(input.actorUserId);
+
+  if (targetWorkspaceId) {
+    const deleted = await deleteSupportAccess(targetWorkspaceId, input.actorUserId);
+    supportAccess = deleted || supportAccess;
+  } else if (supportAccess?.workspace_id) {
+    const deleted = await deleteSupportAccess(String(supportAccess.workspace_id), input.actorUserId);
+    supportAccess = deleted || supportAccess;
+  } else {
+    supportAccess = await deleteLatestActiveSupportAccessByUser(input.actorUserId);
+  }
+
+  if (supportAccess?.workspace_id) {
+    await logAuditSafe({
+      userId: input.actorUserId,
+      workspaceId: String(supportAccess.workspace_id),
+      action: "exit_support_mode",
+      entity: "support_session",
+      entityId: String(supportAccess.id),
+      oldData: {
+        workspaceId: String(supportAccess.workspace_id),
+        expiresAt: supportAccess.expires_at,
+      },
+    });
+  }
+
+  const { password: _, ...userWithoutPassword } = user;
+  return buildAuthContext(userWithoutPassword);
 }

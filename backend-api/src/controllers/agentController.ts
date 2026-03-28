@@ -129,7 +129,7 @@ export const resumeConversation = async (req: Request, res: Response) => {
 
 export const sendAgentReply = async (req: Request, res: Response) => {
   const { conversationId } = req.params;
-  const { text, type, templateName, languageCode } = req.body;
+  const { text, type, templateName, languageCode, templateVariableValues } = req.body;
   const userId = (req as any).user?.id;
 
   if (!conversationId) {
@@ -156,6 +156,7 @@ export const sendAgentReply = async (req: Request, res: Response) => {
         type,
         templateName,
         languageCode,
+        templateVariableValues,
       },
       userId,
       req.app.get("io")
@@ -163,7 +164,12 @@ export const sendAgentReply = async (req: Request, res: Response) => {
 
     res.json({ success: true, ...result });
   } catch (err: any) {
-    console.error("[Agent Reply Error]:", err.message);
+    console.error("[Agent Reply Error]", {
+      conversationId,
+      type: type || null,
+      templateName: templateName || null,
+      error: err?.message || err,
+    });
     res.status(err.status || 500).json({ error: err.message || "Failed to send agent reply" });
   }
 };

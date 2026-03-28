@@ -114,7 +114,7 @@ export default function SingleSendTemplateModal({ isOpen, onClose, template }: P
   const content = useMemo(() => parseTemplateContent(template), [template]);
   const headerType = String(content?.header?.type || "").trim().toLowerCase();
   const needsHeaderMedia = ["image", "video", "document"].includes(headerType);
-  const savedHeaderAsset = String(content?.header?.assetId || content?.header?.assetUrl || "").trim();
+  const savedHeaderAsset = String(content?.header?.assetUrl || content?.header?.assetId || "").trim();
   const hasSavedHeaderAsset = Boolean(savedHeaderAsset);
   const recipientLabel = getRecipientLabel(platform);
   const descriptors = useMemo(
@@ -187,14 +187,19 @@ export default function SingleSendTemplateModal({ isOpen, onClose, template }: P
 
     setIsSending(true);
     try {
-      await apiClient.post(`/templates/${template.id}/send-once`, {
+      const response = await apiClient.post(`/templates/${template.id}/send-once`, {
         recipient: trimmedRecipient,
         recipientName: resolvedRecipientName,
         recipientEmail: resolvedRecipientEmail,
         headerMediaUrl: headerMediaUrl.trim() || undefined,
         variableValues: resolvedVariableValues,
       });
-      notify("Template queued. Delivery status will update after WhatsApp processes it.", "success");
+      if (!response?.data?.success) {
+        notify("Template send was not accepted by the backend.", "error");
+        return;
+      }
+
+      notify("Template send accepted. Delivery status will update after WhatsApp processes it.", "success");
       onClose();
     } catch (error: any) {
       notify(error?.response?.data?.error || "Failed to send template.", "error");

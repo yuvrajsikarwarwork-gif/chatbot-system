@@ -13,6 +13,7 @@ import FlowPortal from "../components/flow/FlowPortal";
 import FlowHeader from "../components/flow/FlowHeader";
 import FlowSidebar from "../components/flow/FlowSidebar";
 import PageAccessNotice from "../components/access/PageAccessNotice";
+import RequirePermission from "../components/access/RequirePermission";
 import DashboardLayout from "../components/layout/DashboardLayout";
 import { useVisibility } from "../hooks/useVisibility";
 import { flowService } from "../services/flowService";
@@ -398,6 +399,36 @@ function FlowBuilderCanvas() {
 
   return (
     <div className="h-screen w-screen flex flex-col bg-[#F8FAFC] overflow-hidden font-sans">
+        <RequirePermission
+          permissionKey="edit_workflow"
+          fallback={
+            <FlowHeader
+              isSidebarOpen={isSidebarOpen}
+              setIsSidebarOpen={setIsSidebarOpen}
+              botName={botMetadata?.name}
+              botId={botId}
+              canEditWorkflow={false}
+              canDeleteFlowAction={canDeleteProjectFlow}
+              flowSummaries={flowSummaries}
+              currentFlowId={currentFlowId}
+              onSelectFlow={handleSelectFlow}
+              onCreateFlow={handleCreateFlow}
+              onDownloadSample={handleDownloadSample}
+              fileInputRef={fileInputRef}
+              onFileUpload={handleFileUpload}
+              onUndo={undo}
+              onRedo={redo}
+              canUndo={past.length > 0}
+              canRedo={future.length > 0}
+              onDeleteSelected={deleteSelected}
+              onDeleteFlow={handleDeleteFlow}
+              onSave={handleSave}
+              isDirty={isDirty}
+              isSaving={isSaving}
+              canDeleteFlow={Boolean(currentFlowId)}
+            />
+          }
+        >
         <FlowHeader
           isSidebarOpen={isSidebarOpen}
           setIsSidebarOpen={setIsSidebarOpen}
@@ -423,6 +454,7 @@ function FlowBuilderCanvas() {
         isSaving={isSaving}
         canDeleteFlow={Boolean(currentFlowId)}
       />
+      </RequirePermission>
 
       <div className="flex-1 flex overflow-hidden relative">
         <FlowSidebar isOpen={isSidebarOpen} onAddNode={onAddNode} canEditWorkflow={canEditProjectWorkflow} />

@@ -9,7 +9,7 @@ export default function BillingPage() {
   const router = useRouter();
   const activeWorkspace = useAuthStore((state) => state.activeWorkspace);
   const { canViewPage, isPlatformOperator } = useVisibility();
-  const canViewBillingPage = canViewPage("billing") || canViewPage("settings") || isPlatformOperator;
+  const canViewBillingPage = canViewPage("billing") || isPlatformOperator;
 
   useEffect(() => {
     if (!router.isReady || !canViewBillingPage) {

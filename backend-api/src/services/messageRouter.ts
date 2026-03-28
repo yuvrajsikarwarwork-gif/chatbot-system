@@ -3,6 +3,11 @@ import { sendWebAdapter } from "../connectors/website/websiteAdapter";
 import { sendEmailAdapter } from "../connectors/email/emailAdapter";
 import { sendWhatsAppAdapter } from "../connectors/whatsapp/whatsappAdapter";
 import { normalizePlatform } from "../utils/platform";
+import {
+  assertWalletCanCharge,
+  recordAiReplyUsage,
+  recordOutboundMessageCharge,
+} from "./walletService";
 
 let messageDeliveryColumnSupport:
   | {
@@ -20,6 +25,9 @@ let templateColumnSupport:
       variables: boolean;
       content: boolean;
       platformType: boolean;
+      metaTemplateId: boolean;
+      metaTemplateName: boolean;
+      status: boolean;
     }
   | null = null;
 
@@ -66,6 +74,9 @@ async function getTemplateColumnSupport() {
     variables: columns.has("variables"),
     content: columns.has("content"),
     platformType: columns.has("platform_type"),
+    metaTemplateId: columns.has("meta_template_id"),
+    metaTemplateName: columns.has("meta_template_name"),
+    status: columns.has("status"),
   };
 
   return templateColumnSupport;
@@ -122,6 +133,103 @@ function interpolateTemplateText(text: string, valuesByToken: Record<string, str
   return String(text || "").replace(/{{\s*(\d+)\s*}}/g, (_, token) => {
     return valuesByToken[token] ?? `{{${token}}}`;
   });
+}
+
+function extractOrderedTemplateTokens(text: string) {
+  const matches = Array.from(String(text || "").matchAll(/{{\s*(\d+)\s*}}/g));
+  const tokens = new Set<string>();
+  for (const match of matches) {
+    const token = String(match?.[1] || "").trim();
+    if (token) {
+      tokens.add(token);
+    }
+  }
+  return Array.from(tokens).sort((left, right) => Number(left) - Number(right));
+}
+
+function buildTemplateComponentParameters(input: {
+  content: any;
+  valuesByToken: Record<string, string>;
+}) {
+  const rawContent = parseJsonLike<any>(input.content) || {};
+  const valuesByToken = input.valuesByToken || {};
+  const components: Array<Record<string, any>> = [];
+  const headerType = String(rawContent?.header?.type || "").trim().toLowerCase();
+  const headerText = String(rawContent?.header?.text || "");
+  const headerTokens = extractOrderedTemplateTokens(headerText);
+
+  if (headerType === "text" && headerTokens.length > 0) {
+    const parameters = headerTokens
+      .map((token) => String(valuesByToken[token] || "").trim())
+      .filter(Boolean)
+      .map((text) => ({
+        type: "text" as const,
+        text,
+      }));
+
+    if (parameters.length > 0) {
+      components.push({
+        type: "header",
+        parameters,
+      });
+    }
+  }
+
+  const bodyTokens = extractOrderedTemplateTokens(String(rawContent?.body || ""));
+  if (bodyTokens.length > 0) {
+    const parameters = bodyTokens
+      .map((token) => String(valuesByToken[token] || "").trim())
+      .filter(Boolean)
+      .map((text) => ({
+        type: "text" as const,
+        text,
+      }));
+
+    if (parameters.length > 0) {
+      components.push({
+        type: "body",
+        parameters,
+      });
+    }
+  }
+
+  const buttons = Array.isArray(rawContent?.buttons) ? rawContent.buttons : [];
+  buttons.forEach((button: any, index: number) => {
+    const buttonType = String(button?.type || "").trim().toLowerCase();
+    if (buttonType !== "url") {
+      return;
+    }
+
+    const value = String(button?.value || "");
+    const tokens = extractOrderedTemplateTokens(value);
+    if (tokens.length === 0) {
+      return;
+    }
+
+    const firstToken = String(tokens[0] || "").trim();
+    if (!firstToken) {
+      return;
+    }
+
+    const parameterValue = String(valuesByToken[firstToken] || "").trim();
+    if (!parameterValue) {
+      return;
+    }
+
+    components.push({
+      type: "button",
+      sub_type: "url",
+      index: String(index),
+      parameters: [
+        {
+          type: "text",
+          text: parameterValue,
+        },
+      ],
+    });
+  });
+
+  return components;
 }
 
 function resolveTemplateMessageContent(input: {
@@ -185,7 +293,12 @@ export interface GenericMessage {
   templateContent?: any;
   templateVariables?: Record<string, any>;
   templateParameters?: Array<Record<string, any>>;
+  templateComponents?: Array<Record<string, any>>;
+  metaTemplateId?: string | null;
+  metaTemplateName?: string | null;
   mediaUrl?: string;
+  pricingCategory?: string | null;
+  entryKind?: string | null;
 }
 
 export interface OutboundDeliveryResult {
@@ -263,6 +376,9 @@ export const routeMessage = async (
         templateSupport.content ? "t.content" : "NULL AS content",
         "t.language",
         templateSupport.variables ? "t.variables" : "'{}'::jsonb AS variables",
+        templateSupport.metaTemplateId ? "t.meta_template_id" : "NULL AS meta_template_id",
+        templateSupport.metaTemplateName ? "t.meta_template_name" : "NULL AS meta_template_name",
+        templateSupport.status ? "t.status" : "NULL AS status",
       ];
       let platformParamIndex: number | null = null;
 
@@ -270,6 +386,26 @@ export const routeMessage = async (
         params.push(normalizedChannel);
         platformParamIndex = params.length;
         orderParts.push(`CASE WHEN t.platform_type = $${platformParamIndex} THEN 0 ELSE 1 END`);
+      }
+      if (templateSupport.status) {
+        orderParts.push(
+          `CASE WHEN LOWER(COALESCE(NULLIF(TRIM(t.status), ''), 'pending')) = 'approved' THEN 0 ELSE 1 END`
+        );
+      }
+      if (templateSupport.metaTemplateId || templateSupport.metaTemplateName) {
+        const metaIdentityChecks = [
+          templateSupport.metaTemplateId
+            ? `NULLIF(TRIM(COALESCE(t.meta_template_id, '')), '') IS NOT NULL`
+            : null,
+          templateSupport.metaTemplateName
+            ? `NULLIF(TRIM(COALESCE(t.meta_template_name, '')), '') IS NOT NULL`
+            : null,
+        ]
+          .filter(Boolean)
+          .join(" OR ");
+        if (metaIdentityChecks) {
+          orderParts.push(`CASE WHEN (${metaIdentityChecks}) THEN 0 ELSE 1 END`);
+        }
       }
 
       if (templateSupport.campaignId && campaignId) {
@@ -313,6 +449,8 @@ export const routeMessage = async (
         message.templateContent = tplRes.rows[0].content;
         message.templateVariables = tplRes.rows[0].variables;
         message.languageCode = tplRes.rows[0].language || message.languageCode;
+        message.metaTemplateId = tplRes.rows[0].meta_template_id || null;
+        message.metaTemplateName = tplRes.rows[0].meta_template_name || null;
       } else {
         console.warn(`[Router] Template '${message.templateName}' not found in DB.`);
       }
@@ -340,6 +478,7 @@ export const routeMessage = async (
         },
         lead: leadRes.rows[0] || {},
       });
+      const originalTemplateContent = message.templateContent;
       const resolvedTemplate = resolveTemplateMessageContent({
         content: message.templateContent,
         variableMap: message.templateVariables || {},
@@ -354,6 +493,10 @@ export const routeMessage = async (
           text: String(resolvedTemplate.valuesByToken[token] || ""),
         }))
         .filter((parameter) => parameter.text.trim() !== "");
+      message.templateComponents = buildTemplateComponentParameters({
+        content: originalTemplateContent,
+        valuesByToken: resolvedTemplate.valuesByToken,
+      });
     }
   }
 
@@ -361,8 +504,27 @@ export const routeMessage = async (
     providerMessageId: null,
     status: "sent",
   };
+  const pricingCategory =
+    String(message.pricingCategory || "").trim().toLowerCase() ||
+    (message.type === "template" ? "marketing" : normalizedChannel === "whatsapp" ? "service" : "");
+  const estimatedAmount =
+    normalizedChannel === "whatsapp"
+      ? undefined
+      : 0;
 
   if (normalizedChannel === "whatsapp") {
+    const walletChargeCheck =
+      estimatedAmount !== undefined
+        ? {
+            workspaceId,
+            platform: normalizedChannel,
+            amount: estimatedAmount,
+          }
+        : {
+            workspaceId,
+            platform: normalizedChannel,
+          };
+    await assertWalletCanCharge(walletChargeCheck);
     deliveryResult = await sendWhatsAppAdapter(
       botId,
       platformUserId,
@@ -386,6 +548,39 @@ export const routeMessage = async (
       status: 400,
       message: `Unsupported channel '${normalizedChannel}' for conversation replies`,
     };
+  }
+
+  await recordOutboundMessageCharge({
+    workspaceId,
+    projectId,
+    conversationId,
+    botId,
+    platform: normalizedChannel,
+    externalMessageId: deliveryResult.providerMessageId || null,
+    pricingCategory,
+    entryKind: message.entryKind || null,
+    referenceType: message.type === "template" ? "template" : "conversation",
+    referenceId:
+      message.type === "template"
+        ? String(message.metaTemplateId || message.metaTemplateName || "")
+        : conversationId,
+    metadata: {
+      messageType: message.type,
+      templateName: message.templateName || null,
+    },
+  });
+
+  if (String(message.entryKind || "").trim().toLowerCase() === "ai_reply") {
+    await recordAiReplyUsage({
+      workspaceId,
+      projectId,
+      conversationId,
+      botId,
+      platform: normalizedChannel,
+      metadata: {
+        messageType: message.type,
+      },
+    });
   }
 
   const support = await getMessageDeliveryColumnSupport();

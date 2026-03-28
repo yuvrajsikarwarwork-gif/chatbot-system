@@ -16,24 +16,73 @@ function normalizeEmail(value: string | null | undefined) {
   return normalized || null;
 }
 
-function normalizePhone(value: string | null | undefined) {
+export function normalizePhone(value: string | null | undefined) {
   const trimmed = String(value || "").trim();
   if (!trimmed) return null;
 
   const normalized = trimmed.replace(/[^\d+]/g, "");
   if (!normalized) return null;
-  if (normalized.startsWith("00")) {
-    return `+${normalized.slice(2)}`;
+
+  const withoutPlus = normalized.startsWith("+") ? normalized.slice(1) : normalized;
+  const withoutInternationalPrefix = withoutPlus.startsWith("00")
+    ? withoutPlus.slice(2)
+    : withoutPlus;
+  const digitsOnly = withoutInternationalPrefix.replace(/\D/g, "");
+  if (!digitsOnly) return null;
+
+  if (digitsOnly.length === 10) {
+    return `91${digitsOnly}`;
   }
-  return normalized;
+
+  if (digitsOnly.length === 11 && digitsOnly.startsWith("0")) {
+    return `91${digitsOnly.slice(1)}`;
+  }
+
+  return digitsOnly;
+}
+
+export function normalizeWhatsAppPlatformUserId(value: string | null | undefined) {
+  return normalizePhone(value);
+}
+
+function buildWhatsAppIdentityVariants(value: string | null | undefined) {
+  const rawDigits = String(value || "").replace(/\D/g, "");
+  const normalized = normalizeWhatsAppPlatformUserId(value);
+  const variants = new Set<string>();
+
+  if (rawDigits) {
+    variants.add(rawDigits);
+    if (rawDigits.length === 10) {
+      variants.add(`91${rawDigits}`);
+    }
+    if (rawDigits.length === 11 && rawDigits.startsWith("0")) {
+      variants.add(`91${rawDigits.slice(1)}`);
+    }
+    if (rawDigits.length === 12 && rawDigits.startsWith("91")) {
+      variants.add(rawDigits.slice(2));
+    }
+  }
+
+  if (normalized) {
+    variants.add(normalized);
+    if (normalized.startsWith("91") && normalized.length === 12) {
+      variants.add(normalized.slice(2));
+    }
+  }
+
+  return Array.from(variants).filter(Boolean);
 }
 
 function normalizeIdentityValue(
   identityType: "platform_user_id" | "email" | "phone",
-  value: string | null | undefined
+  value: string | null | undefined,
+  platform?: string | null
 ) {
   if (identityType === "email") return normalizeEmail(value);
   if (identityType === "phone") return normalizePhone(value);
+  if (normalizePlatform(platform || "") === "whatsapp") {
+    return normalizeWhatsAppPlatformUserId(value);
+  }
   const normalized = String(value || "").trim();
   return normalized || null;
 }
@@ -49,7 +98,11 @@ async function findContactByIdentity(input: {
   identityValue?: string | null;
 }) {
   const workspaceId = String(input.workspaceId || "").trim();
-  const identityValue = normalizeIdentityValue(input.identityType, input.identityValue);
+  const identityValue = normalizeIdentityValue(
+    input.identityType,
+    input.identityValue,
+    input.platform
+  );
   if (!workspaceId || !identityValue) {
     return null;
   }
@@ -87,7 +140,11 @@ export async function linkContactIdentity(input: {
   metadata?: Record<string, unknown> | null;
 }) {
   const workspaceId = String(input.workspaceId || "").trim();
-  const identityValue = normalizeIdentityValue(input.identityType, input.identityValue);
+  const identityValue = normalizeIdentityValue(
+    input.identityType,
+    input.identityValue,
+    input.platform
+  );
   if (!workspaceId || !identityValue) {
     return null;
   }
@@ -130,7 +187,11 @@ export async function linkContactIdentity(input: {
 export async function upsertContactWithIdentity(input: UpsertContactWithIdentityInput) {
   const normalizedPlatform = normalizePlatform(input.platform);
   const workspaceId = String(input.workspaceId || "").trim() || null;
-  const platformUserId = normalizeIdentityValue("platform_user_id", input.platformUserId);
+  const platformUserId = normalizeIdentityValue(
+    "platform_user_id",
+    input.platformUserId,
+    normalizedPlatform
+  );
   const email = normalizeEmail(input.email);
   const phone = normalizePhone(input.phone);
   const name = String(input.name || "").trim() || "User";
@@ -162,6 +223,27 @@ export async function upsertContactWithIdentity(input: UpsertContactWithIdentity
           identityValue: phone,
         })
       : null);
+
+  if (!contact) {
+    if (normalizedPlatform === "whatsapp") {
+      const legacyVariants = buildWhatsAppIdentityVariants(input.phone || input.platformUserId);
+      if (legacyVariants.length > 0) {
+        const legacyRes = await query(
+          `SELECT *
+           FROM contacts
+           WHERE bot_id = $1
+             AND (
+               platform_user_id = ANY($2::text[])
+               OR COALESCE(phone, '') = ANY($2::text[])
+             )
+           ORDER BY updated_at DESC NULLS LAST, created_at DESC
+           LIMIT 1`,
+          [input.botId, legacyVariants]
+        );
+        contact = legacyRes.rows[0] || null;
+      }
+    }
+  }
 
   if (!contact) {
     const existingRes = await query(

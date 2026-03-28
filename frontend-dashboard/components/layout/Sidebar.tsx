@@ -91,6 +91,7 @@ type MenuItem = {
   path: string;
   Icon: ComponentType;
   section: AppSection;
+  visible?: boolean;
 };
 
 function SidebarLink({
@@ -132,28 +133,32 @@ function SidebarLink({
 
 export default function Sidebar() {
   const router = useRouter();
-  const { canSeeNav, isPlatformOperator } = useVisibility();
+  const { canSeeNav, isPlatformOperator, workspaceRole, isWorkspaceAdmin } = useVisibility();
   const activeWorkspace = useAuthStore((state) => state.activeWorkspace);
   const navRef = useRef<HTMLElement | null>(null);
   const workspaceBillingPath = activeWorkspace?.workspace_id
     ? `/workspaces/${activeWorkspace.workspace_id}/billing`
     : "/settings";
+  const isAgent = workspaceRole === "agent";
+  const isEditor = workspaceRole === "editor";
+  const isViewer = workspaceRole === "viewer";
   const workspaceMenu = [
-    { label: "Dashboard", path: "/", Icon: Icons.Dashboard, section: "dashboard" },
-    { label: "Projects", path: "/projects", Icon: Icons.Projects, section: "projects" },
-    { label: "Campaigns", path: "/campaigns", Icon: Icons.Campaigns, section: "campaigns" },
-    { label: "Templates", path: "/templates", Icon: Icons.Templates, section: "templates" },
-    { label: "Bots", path: "/bots", Icon: Icons.Bots, section: "bots" },
-    { label: "Flows", path: "/flows", Icon: Icons.Flow, section: "flows" },
-    { label: "Integrations", path: "/integrations", Icon: Icons.Platforms, section: "integrations" },
-    { label: "Inbox", path: "/inbox", Icon: Icons.Chat, section: "inbox" },
-    { label: "Leads", path: "/leads", Icon: Icons.Leads, section: "leads" },
-    { label: "Analytics", path: "/analytics", Icon: Icons.Analytics, section: "analytics" },
-    { label: "Users & Permissions", path: "/users-access", Icon: Icons.Permissions, section: "users_access" },
-    { label: "Settings", path: "/settings", Icon: Icons.Settings, section: "settings" },
-    { label: "Support", path: "/support", Icon: Icons.Tickets, section: "support" },
-    { label: "Audit", path: "/audit", Icon: Icons.Audit, section: "audit" },
-    { label: "Billing", path: workspaceBillingPath, Icon: Icons.Workspaces, section: "billing" },
+    { label: "Dashboard", path: "/", Icon: Icons.Dashboard, section: "dashboard", visible: true },
+    { label: "Projects", path: "/projects", Icon: Icons.Projects, section: "projects", visible: !isAgent },
+    { label: "Campaigns", path: "/campaigns", Icon: Icons.Campaigns, section: "campaigns", visible: !isAgent },
+    { label: "Templates", path: "/templates", Icon: Icons.Templates, section: "templates", visible: !isAgent },
+    { label: "Bots", path: "/bots", Icon: Icons.Bots, section: "bots", visible: !isAgent },
+    { label: "Flows", path: "/flows", Icon: Icons.Flow, section: "flows", visible: !isAgent },
+    { label: "Integrations", path: "/integrations", Icon: Icons.Platforms, section: "integrations", visible: !isAgent },
+    { label: "Inbox", path: "/inbox", Icon: Icons.Chat, section: "inbox", visible: true },
+    { label: "Leads", path: "/leads", Icon: Icons.Leads, section: "leads", visible: true },
+    { label: "Analytics", path: "/analytics", Icon: Icons.Analytics, section: "analytics", visible: !isAgent },
+    { label: "Users & Permissions", path: "/users-access", Icon: Icons.Permissions, section: "users_access", visible: isWorkspaceAdmin },
+    { label: "Workspace Settings", path: "/settings", Icon: Icons.Settings, section: "settings", visible: isWorkspaceAdmin },
+    { label: "My Profile", path: "/settings", Icon: Icons.Users, section: "dashboard", visible: !isWorkspaceAdmin },
+    { label: "Support", path: "/support", Icon: Icons.Tickets, section: "support", visible: isWorkspaceAdmin },
+    { label: "Audit", path: "/audit", Icon: Icons.Audit, section: "audit", visible: isWorkspaceAdmin },
+    { label: "Billing", path: workspaceBillingPath, Icon: Icons.Workspaces, section: "billing", visible: false },
   ] as MenuItem[];
   const platformMenu = [
     { label: "Workspaces", path: "/workspaces", Icon: Icons.Workspaces, section: "workspaces" },
@@ -163,8 +168,8 @@ export default function Sidebar() {
     { label: "Logs", path: "/logs", Icon: Icons.Audit, section: "logs" },
     { label: "System Settings", path: "/system-settings", Icon: Icons.Settings, section: "system_settings" },
   ] as MenuItem[];
-  const menu = (isPlatformOperator ? platformMenu : workspaceMenu).filter((item) =>
-    canSeeNav(item.section)
+  const menu = (isPlatformOperator ? platformMenu : workspaceMenu).filter(
+    (item) => item.visible !== false && canSeeNav(item.section)
   );
 
   useEffect(() => {
@@ -211,7 +216,7 @@ export default function Sidebar() {
 
       <nav ref={navRef} className="flex-1 overflow-y-auto px-3 py-4">
         <div className="px-3 pb-3 text-[10px] font-semibold uppercase tracking-[0.28em] text-[var(--sidebar-muted)]">
-          Navigation
+          {isPlatformOperator ? "Platform Admin" : "Workspace"}
         </div>
 
         {menu.map((item) => {

@@ -91,11 +91,13 @@ export default function TemplateDetailPage() {
   const canViewTemplatesPage = canViewPage("templates");
   const templateId = useMemo(() => String(router.query.id || ""), [router.query.id]);
   const metaSubmitted = isMetaSubmitted(template);
+  const hasTemplateScope = Boolean(activeWorkspace?.workspace_id);
 
   const loadPage = async () => {
-    if (!templateId) {
+    if (!templateId || !hasTemplateScope) {
       setTemplate(null);
-      setIsLoading(false);
+      setLoadError("");
+      setIsLoading(!templateId ? false : true);
       return;
     }
     setIsLoading(true);
@@ -123,9 +125,9 @@ export default function TemplateDetailPage() {
   };
 
   useEffect(() => {
-    if (!router.isReady || !canViewTemplatesPage) return;
+    if (!router.isReady || !canViewTemplatesPage || !hasTemplateScope) return;
     loadPage();
-  }, [router.isReady, canViewTemplatesPage, templateId, activeWorkspace?.workspace_id, activeProject?.id]);
+  }, [router.isReady, canViewTemplatesPage, hasTemplateScope, templateId, activeWorkspace?.workspace_id, activeProject?.id]);
 
   const handleSubmitToMeta = async () => {
     try {
@@ -201,7 +203,7 @@ export default function TemplateDetailPage() {
                   ) : null}
                 </div>
                 <div className="flex flex-wrap gap-3">
-                  {template.platform_type === "whatsapp" && String(template.status || "").toLowerCase() !== "approved" ? (
+                  {template.platform_type === "whatsapp" ? (
                     <>
                       <button
                         onClick={handleSubmitToMeta}

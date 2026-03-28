@@ -34,6 +34,9 @@ export default function WorkspaceStatusBanner({
   if (workspaceStatus === "locked") {
     tone = "border-red-200 bg-red-50 text-red-700";
     message = workspace.lock_reason || "This workspace is locked.";
+  } else if (workspaceStatus === "suspended") {
+    tone = "border-amber-200 bg-amber-50 text-amber-700";
+    message = workspace.lock_reason || "This workspace is on hold and messaging is suspended.";
   } else if (subscriptionStatus === "expired" || subscriptionStatus === "canceled") {
     tone = "border-red-200 bg-red-50 text-red-700";
     message = "Subscription is inactive. New changes are unavailable.";

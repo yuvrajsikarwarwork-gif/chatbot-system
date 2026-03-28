@@ -3,6 +3,7 @@ import {
   getMembershipAgentScope,
   normalizeWorkspaceRole,
 } from "./workspaceAccessService";
+import { hasAliasedPermission } from "./permissionAliasService";
 
 type AppSection =
   | "dashboard"
@@ -61,7 +62,7 @@ type BuildResolvedAccessInput = {
 };
 
 function hasPermission(permissionMap: Record<string, boolean>, permission: string) {
-  return Boolean(permissionMap[permission]);
+  return hasAliasedPermission(permissionMap, permission);
 }
 
 function emptySectionMap(): Record<AppSection, SectionVisibility> {
@@ -118,6 +119,7 @@ export function buildResolvedAccessSnapshot(
   const supportAccess =
     Boolean(workspacePermissions.support_access) ||
     Boolean(activeWorkspace?.permissions_json?.support_mode);
+  const platformAdminSurface = isPlatformOperator && !supportAccess;
 
   const scopedProjectAccesses = Array.isArray(input.projectAccesses)
     ? input.projectAccesses.filter(
@@ -177,13 +179,13 @@ export function buildResolvedAccessSnapshot(
     hasPermission(workspacePermissions, "view_platform_accounts") ||
     hasAnyProjectAdmin;
   const canViewSupport =
-    isPlatformOperator || canManageWorkspace || canManageUsers || canManagePermissions;
+    platformAdminSurface || canManageWorkspace || canManageUsers || canManagePermissions;
   const canViewUsersAccess = canManageUsers || canManagePermissions;
-  const canViewBilling = isPlatformOperator;
+  const canViewBilling = platformAdminSurface;
 
   const sections = emptySectionMap();
 
-  if (isPlatformOperator) {
+  if (platformAdminSurface) {
     sections.workspaces = { nav: true, page: true };
     sections.permissions = { nav: true, page: true };
     sections.tickets = { nav: true, page: true };
@@ -246,10 +248,6 @@ export function buildResolvedAccessSnapshot(
       nav: sections.users_access.nav || canViewUsersAccess,
       page: sections.users_access.page || canViewUsersAccess,
     };
-    sections.workspaces = {
-      nav: sections.workspaces.nav || canManageWorkspace || canManageUsers || canManagePermissions,
-      page: sections.workspaces.page || canManageWorkspace || canManageUsers || canManagePermissions,
-    };
     sections.settings = {
       nav: canManageWorkspace,
       page: canManageWorkspace,
@@ -268,11 +266,13 @@ export function buildResolvedAccessSnapshot(
     };
   }
 
-  if (isPlatformOperator && supportAccess) {
-    sections.users_access = {
-      nav: false,
-      page: true,
-    };
+  if (supportAccess) {
+    sections.workspaces = { nav: false, page: false };
+    sections.permissions = { nav: false, page: false };
+    sections.plans = { nav: false, page: false };
+    sections.logs = { nav: false, page: false };
+    sections.system_settings = { nav: false, page: false };
+    sections.tickets = { nav: false, page: false };
   }
 
   return {

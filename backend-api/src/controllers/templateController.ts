@@ -6,7 +6,12 @@ import { routeMessage, GenericMessage } from "../services/messageRouter";
 import { applyConversationWorkspacePolicies } from "../services/conversationAssignmentService";
 import { findPlatformAccountsByWorkspaceProject } from "../models/platformAccountModel";
 import { decryptSecret } from "../utils/encryption";
-import { upsertContactWithIdentity } from "../services/contactIdentityService";
+import { validateTemplateInput } from "../utils/whatsappTemplateSchema";
+import {
+  normalizeWhatsAppPlatformUserId,
+  upsertContactWithIdentity,
+} from "../services/contactIdentityService";
+import { cancelPendingJobsByConversation } from "../models/queueJobModel";
 import {
   assertProjectScopedWriteAccess,
   type ProjectRole,
@@ -16,12 +21,16 @@ import {
   assertWorkspacePermission,
   WORKSPACE_PERMISSIONS,
 } from "../services/workspaceAccessService";
+import { clearUserTimers } from "../services/flowEngine";
+import { assertCampaignRunLimit } from "../services/businessValidationService";
+import { recordWorkspaceUsage } from "../services/billingService";
 
 const TEMPLATE_OPERATOR_ROLES: ProjectRole[] = ["project_admin", "editor"];
 const TEMPLATE_DELETE_ROLES: ProjectRole[] = ["project_admin"];
 const SCHEMA_COMPAT_ERROR_CODES = new Set(["42P01", "42703"]);
 const META_GRAPH_VERSION = process.env.META_GRAPH_VERSION || "v23.0";
 const EMPTY_UUID = "00000000-0000-0000-0000-000000000000";
+const FLOW_WAIT_JOB_TYPES = ["flow_wait_reminder", "flow_wait_timeout"];
 
 const normalizeTemplateContent = (body: any) => {
   if (body.content && typeof body.content === "object") {
@@ -30,6 +39,7 @@ const normalizeTemplateContent = (body: any) => {
       body: body.content.body || "",
       footer: body.content.footer || "",
       buttons: Array.isArray(body.content.buttons) ? body.content.buttons : [],
+      samples: body.content.samples || {},
     };
   }
 
@@ -50,6 +60,7 @@ const normalizeTemplateContent = (body: any) => {
     body: body.body || "",
     footer: body.footer || "",
     buttons: body.buttons || [],
+    samples: body.samples || {},
   };
 };
 
@@ -571,6 +582,26 @@ function isPlaceholderTemplateName(value: unknown) {
   return !normalized || normalized === "imported_template";
 }
 
+function getPreferredMetaTemplateName(template: any, requestedName?: unknown) {
+  const metaPayload = parseJsonLike(template?.meta_payload) || {};
+  const candidates = [
+    requestedName,
+    template?.meta_template_name,
+    metaPayload?.name,
+    template?.name,
+  ];
+
+  for (const candidate of candidates) {
+    const raw = String(candidate || "").trim();
+    if (!raw || isPlaceholderTemplateName(raw)) {
+      continue;
+    }
+    return normalizeMetaTemplateName(raw);
+  }
+
+  return "";
+}
+
 function computeTemplateOrigin(input: {
   template: any;
   metaPayload: any;
@@ -647,6 +678,7 @@ function normalizeTemplateRecordForResponse(template: any) {
       : Array.isArray(template?.buttons)
         ? template.buttons
         : [],
+    samples: rawContent?.samples || payloadContent?.samples || {},
   };
   const normalizedStatus = normalizeTemplateStatus(template?.status || metaPayload?.status || "pending");
   const templateOrigin = computeTemplateOrigin({
@@ -818,9 +850,10 @@ function buildMetaTemplateComponents(template: any) {
   const content = normalizeTemplateContent(template);
   const templateVariables = parseJsonLike(template?.variables) || {};
   const components: any[] = [];
+  const contentSamples = parseJsonLike(content?.samples) || {};
   const mediaSample =
-    content.header?.text && String(content.header.text).trim()
-      ? [String(content.header.text).trim()]
+    String(content.header?.assetId || content.header?.text || "").trim()
+      ? [String(content.header?.assetId || content.header?.text || "").trim()]
       : [];
   const previewSampleMap: Record<string, string> = {
     name: "Sample Name",
@@ -839,16 +872,32 @@ function buildMetaTemplateComponents(template: any) {
         ?.map((token) => token.replace(/[{}]/g, "").trim()) || []
     )
   );
-  const bodyExampleValues = bodyTokens.map((token) => {
-    const mappedField = String(templateVariables?.[token] || "").trim();
-    return previewSampleMap[mappedField] || `sample_${token}`;
-  });
+  const savedBodySamples = Array.isArray(contentSamples?.bodyText)
+    ? contentSamples.bodyText.map((value: any) => String(value || "").trim()).filter(Boolean)
+    : [];
+  const bodyExampleValues =
+    savedBodySamples.length >= bodyTokens.length
+      ? savedBodySamples.slice(0, bodyTokens.length)
+      : bodyTokens.map((token) => {
+          const mappedField = String(templateVariables?.[token] || "").trim();
+          return previewSampleMap[mappedField] || `sample_${token}`;
+        });
+  const savedHeaderSamples = Array.isArray(contentSamples?.headerText)
+    ? contentSamples.headerText.map((value: any) => String(value || "").trim()).filter(Boolean)
+    : [];
 
   if (content.header?.type === "text" && content.header?.text) {
     components.push({
       type: "HEADER",
       format: "TEXT",
       text: String(content.header.text),
+      ...(savedHeaderSamples.length > 0
+        ? {
+            example: {
+              header_text: savedHeaderSamples,
+            },
+          }
+        : {}),
     });
   } else if (content.header?.type === "image") {
     components.push({
@@ -886,6 +935,11 @@ function buildMetaTemplateComponents(template: any) {
           }
         : {}),
     });
+  } else if (content.header?.type === "location") {
+    components.push({
+      type: "HEADER",
+      format: "LOCATION",
+    });
   }
 
   components.push({
@@ -913,10 +967,17 @@ function buildMetaTemplateComponents(template: any) {
       .map((button: any) => {
         const type = String(button?.type || "").toLowerCase();
         if (type === "website" || type === "url") {
+          const urlMode = String(button?.urlMode || "").trim().toLowerCase();
+          const sampleValue = String(button?.sampleValue || "").trim();
           return {
             type: "URL",
             text: String(button?.title || "Open"),
             url: String(button?.value || ""),
+            ...((urlMode === "dynamic" || sampleValue) && sampleValue
+              ? {
+                  example: [sampleValue],
+                }
+              : {}),
           };
         }
         if (type === "phone") {
@@ -930,7 +991,19 @@ function buildMetaTemplateComponents(template: any) {
           return {
             type: "COPY_CODE",
             text: String(button?.title || "Copy code"),
-            example: String(button?.value || ""),
+            example: String(button?.sampleValue || button?.value || ""),
+          };
+        }
+        if (type === "flow") {
+          return {
+            type: "QUICK_REPLY",
+            text: String(button?.title || "Open flow"),
+          };
+        }
+        if (type === "catalog") {
+          return {
+            type: "QUICK_REPLY",
+            text: String(button?.title || "Open catalog"),
           };
         }
         return {
@@ -958,6 +1031,7 @@ function parseMetaTemplateComponents(components: any[]) {
     body: "",
     footer: "",
     buttons: [] as any[],
+    samples: {} as any,
   };
 
   for (const component of Array.isArray(components) ? components : []) {
@@ -969,6 +1043,9 @@ function parseMetaTemplateComponents(components: any[]) {
           type: "text",
           text: String(component?.text || ""),
         };
+        if (Array.isArray(component?.example?.header_text)) {
+          content.samples.headerText = component.example.header_text;
+        }
       } else {
         const headerHandle =
           Array.isArray(component?.example?.header_handle) &&
@@ -985,6 +1062,12 @@ function parseMetaTemplateComponents(components: any[]) {
 
     if (type === "BODY") {
       content.body = String(component?.text || "");
+      if (
+        Array.isArray(component?.example?.body_text) &&
+        Array.isArray(component.example.body_text[0])
+      ) {
+        content.samples.bodyText = component.example.body_text[0];
+      }
     }
 
     if (type === "FOOTER") {
@@ -1000,6 +1083,14 @@ function parseMetaTemplateComponents(components: any[]) {
             type: "url",
             title: String(button?.text || ""),
             value: String(button?.url || ""),
+            urlMode:
+              /{{\s*\d+\s*}}$/.test(String(button?.url || "")) || Array.isArray(button?.example)
+                ? "dynamic"
+                : "static",
+            sampleValue:
+              Array.isArray(button?.example) && button.example.length > 0
+                ? String(button.example[0] || "")
+                : "",
           };
         }
         if (buttonType === "PHONE_NUMBER") {
@@ -1194,7 +1285,33 @@ async function syncLocalTemplateShapeFromMeta(input: {
   const columnMap = await getTemplateColumnMap();
   const assignments = ["updated_at = CURRENT_TIMESTAMP"];
   const values: any[] = [];
+  const existingTemplateRes = await query(
+    `SELECT *
+     FROM templates
+     WHERE id = $1
+     LIMIT 1`,
+    [input.templateId]
+  );
+  const existingTemplate = existingTemplateRes.rows[0] || null;
+  const existingContent = normalizeTemplateContent(existingTemplate || {});
   const remoteContent = parseMetaTemplateComponents(input.remote?.components || []);
+  const remoteHeaderType = String(remoteContent?.header?.type || "").trim().toLowerCase();
+  const mergedContent =
+    ["image", "video", "document"].includes(remoteHeaderType)
+      ? {
+          ...remoteContent,
+          header: {
+            ...(remoteContent?.header || {}),
+            ...(String(existingContent?.header?.assetUrl || "").trim()
+              ? { assetUrl: String(existingContent.header.assetUrl).trim() }
+              : {}),
+            ...(String(existingContent?.header?.assetId || "").trim() &&
+            !/^https?:\/\//i.test(String(existingContent.header.assetId).trim())
+              ? { assetId: String(existingContent.header.assetId).trim() }
+              : {}),
+          },
+        }
+      : remoteContent;
 
   values.push(String(input.remote?.name || "Imported Template"));
   assignments.push(`name = $${values.length}`);
@@ -1206,27 +1323,27 @@ async function syncLocalTemplateShapeFromMeta(input: {
   assignments.push(`language = $${values.length}`);
 
   if (columnMap.hasContent) {
-    values.push(JSON.stringify(remoteContent));
+    values.push(JSON.stringify(mergedContent));
     assignments.push(`content = $${values.length}::jsonb`);
   }
 
   if (columnMap.hasHeaderType) {
-    values.push(remoteContent.header?.type || "none");
+    values.push(mergedContent.header?.type || "none");
     assignments.push(`header_type = $${values.length}`);
   }
 
   if (columnMap.hasHeader) {
-    values.push(remoteContent.header?.text || null);
+    values.push(mergedContent.header?.text || null);
     assignments.push(`header = $${values.length}`);
   }
 
   if (columnMap.hasBody) {
-    values.push(String(remoteContent.body || ""));
+    values.push(String(mergedContent.body || ""));
     assignments.push(`body = $${values.length}`);
   }
 
   if (columnMap.hasFooter) {
-    values.push(String(remoteContent.footer || ""));
+    values.push(String(mergedContent.footer || ""));
     assignments.push(`footer = $${values.length}`);
   }
 
@@ -1349,6 +1466,17 @@ export const createTemplate = async (req: PolicyRequest, res: Response) => {
 
     const campaign = await findAccessibleCampaign(String(campaign_id), userId);
     const content = normalizeTemplateContent(req.body);
+    const validation = validateTemplateInput(
+      {
+        ...req.body,
+        content,
+        campaign_id: String(campaign_id || "").trim() || null,
+      },
+      String(status || "").toLowerCase() === "draft" ? "draft" : "publish"
+    );
+    if (!validation.ok) {
+      return res.status(400).json({ error: validation.errors[0] });
+    }
     const columnMap = await getTemplateColumnMap();
 
     const insertColumns = ["platform_type", "name", "category", "language", "status", "updated_at"];
@@ -1618,6 +1746,17 @@ export const updateTemplate = async (req: PolicyRequest, res: Response) => {
     }
 
     const content = normalizeTemplateContent(req.body);
+    const validation = validateTemplateInput(
+      {
+        ...req.body,
+        content,
+        campaign_id: String(campaign_id || "").trim() || null,
+      },
+      String(status || "").toLowerCase() === "draft" ? "draft" : "publish"
+    );
+    if (!validation.ok) {
+      return res.status(400).json({ error: validation.errors[0] });
+    }
     const columnMap = await getTemplateColumnMap();
     const assignments = [`updated_at = CURRENT_TIMESTAMP`];
     const values: any[] = [];
@@ -1705,7 +1844,7 @@ export const approveTemplate = async (req: PolicyRequest, res: Response) => {
       return res.status(400).json({ error: "id is required" });
     }
 
-    await findAccessibleTemplate(
+    const template = await findAccessibleTemplate(
       id,
       userId,
       WORKSPACE_PERMISSIONS.editCampaign,
@@ -1722,7 +1861,7 @@ export const approveTemplate = async (req: PolicyRequest, res: Response) => {
            updated_at = CURRENT_TIMESTAMP
        WHERE id = $3
        RETURNING *`,
-      [status, rejected_reason || null, id]
+      [normalizeTemplateStatus(status), rejected_reason || null, id]
     );
 
     if (!result.rows.length) {
@@ -1767,9 +1906,12 @@ export const submitTemplateToMeta = async (req: PolicyRequest, res: Response) =>
 
     const connection = await getMetaTemplateConnection(template);
     const requestedMetaTemplateName = String(req.body?.metaTemplateName || "").trim();
-    const metaTemplateName = normalizeMetaTemplateName(
-      requestedMetaTemplateName || String(template.meta_template_name || template.name || "")
-    );
+    const metaTemplateName = getPreferredMetaTemplateName(template, requestedMetaTemplateName);
+    if (!metaTemplateName) {
+      return res.status(400).json({
+        error: "Template has no usable Meta template name yet. Rename the template with a real WhatsApp template name before submitting it to Meta.",
+      });
+    }
     const existingRemote = await findMetaTemplateRecord({
       accessToken: connection.accessToken,
       wabaId: connection.wabaId,
@@ -1968,9 +2110,12 @@ export const syncTemplateFromMeta = async (req: PolicyRequest, res: Response) =>
 
     const connection = await getMetaTemplateConnection(template);
     const metaPayload = parseJsonLike(template?.meta_payload) || {};
-    const templateName = normalizeMetaTemplateName(
-      String(template.meta_template_name || metaPayload?.name || template.name || "")
-    );
+    const templateName = getPreferredMetaTemplateName(template, req.body?.metaTemplateName);
+    if (!template.meta_template_id && !templateName) {
+      return res.status(409).json({
+        error: "Template has no Meta identity yet. Submit it to Meta first or run Sync All From Meta into this campaign.",
+      });
+    }
 
     const remote = await findMetaTemplateRecord({
       accessToken: connection.accessToken,
@@ -2143,8 +2288,12 @@ export const importTemplatesFromMeta = async (req: PolicyRequest, res: Response)
       const orphanWhereParts = [
         `platform_type = 'whatsapp'`,
         scopeField ? `${scopeField} = $1` : null,
-        `(meta_template_id IS NULL OR TRIM(COALESCE(meta_template_id, '')) = '')`,
-        `(meta_template_name IS NULL OR TRIM(COALESCE(meta_template_name, '')) = '')`,
+        columnMap.hasMetaTemplateId
+          ? `(meta_template_id IS NULL OR TRIM(COALESCE(meta_template_id, '')) = '')`
+          : null,
+        columnMap.hasMetaTemplateName
+          ? `(meta_template_name IS NULL OR TRIM(COALESCE(meta_template_name, '')) = '')`
+          : null,
         `(LOWER(TRIM(COALESCE(name, ''))) IN ('imported template', 'imported_template') OR TRIM(COALESCE(body, '')) = '')`,
       ].filter(Boolean);
 
@@ -2482,6 +2631,10 @@ export const launchCampaign = async (req: PolicyRequest, res: Response) => {
       return res.status(400).json({ error: "contactIds or leadIds are required" });
     }
 
+    if (runtime.workspaceId) {
+      await assertCampaignRunLimit(runtime.workspaceId);
+    }
+
     const contactsRes = await query(
       `SELECT *
        FROM contacts
@@ -2502,7 +2655,11 @@ export const launchCampaign = async (req: PolicyRequest, res: Response) => {
           languageCode: template.language,
           templateContent: template.content,
           templateVariables: template.variables,
+          metaTemplateId: template.meta_template_id || null,
+          metaTemplateName: template.meta_template_name || null,
           text: `[Campaign: ${campaignName}] ${template.name}`,
+          pricingCategory: String(template.category || "marketing").trim().toLowerCase(),
+          entryKind: "campaign_run",
         };
 
         const convRes = await query(
@@ -2572,6 +2729,21 @@ export const launchCampaign = async (req: PolicyRequest, res: Response) => {
       }
     }
 
+    if (runtime.workspaceId) {
+      await recordWorkspaceUsage({
+        workspaceId: runtime.workspaceId,
+        projectId: runtime.projectId || null,
+        metricKey: "campaign_runs",
+        metadata: {
+          campaignName,
+          templateId: template.id,
+          totalRecipients: contacts.length,
+          successCount,
+          failCount,
+        },
+      });
+    }
+
     res.status(200).json({ success: true, successCount, failCount, total: contacts.length });
   } catch (error: any) {
     res.status(error.status || 500).json({ error: error.message || "Internal Server Error" });
@@ -2619,10 +2791,14 @@ export const sendTemplateOnce = async (req: PolicyRequest, res: Response) => {
       preferredBotId,
     });
     const channel = String(runtime.platform || template.platform_type || "").trim().toLowerCase();
+    const normalizedRecipientInput =
+      channel === "whatsapp"
+        ? normalizeWhatsAppPlatformUserId(recipientInput) || recipientInput
+        : recipientInput;
     const recipientIdentifier =
       channel === "email"
         ? recipientEmail || recipientInput
-        : recipientInput;
+        : normalizedRecipientInput;
 
     if (!recipientIdentifier) {
       return res.status(400).json({ error: channel === "email" ? "Recipient email is required." : "Recipient phone or platform id is required." });
@@ -2667,11 +2843,12 @@ export const sendTemplateOnce = async (req: PolicyRequest, res: Response) => {
        WHERE contact_id = $1
          AND bot_id = $2
          AND channel = $3
-         AND COALESCE(project_id, '00000000-0000-0000-0000-000000000000'::uuid) =
-             COALESCE($4, '00000000-0000-0000-0000-000000000000'::uuid)
-       ORDER BY updated_at DESC
+       ORDER BY
+         CASE WHEN status IN ('active', 'agent_pending') THEN 0 ELSE 1 END,
+         CASE WHEN current_node IS NOT NULL THEN 0 ELSE 1 END,
+         updated_at DESC
        LIMIT 1`,
-      [contactId, runtime.botId, channel, runtime.projectId || null]
+      [contactId, runtime.botId, channel]
     );
 
     let conversationId = conversationRes.rows[0]?.id;
@@ -2709,15 +2886,19 @@ export const sendTemplateOnce = async (req: PolicyRequest, res: Response) => {
         `UPDATE conversations
          SET
            variables = $2::jsonb,
-           platform_account_id = COALESCE(platform_account_id, $3),
-           channel_id = COALESCE(channel_id, $4),
-           campaign_id = COALESCE(campaign_id, $5),
+           workspace_id = COALESCE(workspace_id, $3),
+           project_id = COALESCE(project_id, $4),
+           platform_account_id = COALESCE(platform_account_id, $5),
+           channel_id = COALESCE(channel_id, $6),
+           campaign_id = COALESCE(campaign_id, $7),
            status = 'active',
            updated_at = NOW()
          WHERE id = $1`,
         [
           conversationId,
           JSON.stringify(mergedConversationVariables),
+          runtime.workspaceId || null,
+          runtime.projectId || null,
           runtime.platformAccountId || null,
           runtime.channelId || null,
           template.campaign_id || null,
@@ -2730,7 +2911,7 @@ export const sendTemplateOnce = async (req: PolicyRequest, res: Response) => {
     }
 
     const normalizedHeaderType = String(content?.header?.type || "").trim().toLowerCase();
-    const savedHeaderAsset = String(content?.header?.assetId || content?.header?.assetUrl || "").trim();
+    const savedHeaderAsset = String(content?.header?.assetUrl || content?.header?.assetId || "").trim();
     const headerMediaUrl = String(
       req.body?.headerMediaUrl || req.body?.headerMedia || savedHeaderAsset || ""
     ).trim();
@@ -2747,7 +2928,15 @@ export const sendTemplateOnce = async (req: PolicyRequest, res: Response) => {
             ...content,
             header: {
               ...(content?.header || {}),
-              text: headerMediaUrl,
+              ...( /^https?:\/\//i.test(String(headerMediaUrl || "").trim())
+                ? {
+                    assetUrl: headerMediaUrl,
+                    ...(content?.header?.assetId ? { assetId: content.header.assetId } : {}),
+                  }
+                : {
+                    assetId: headerMediaUrl,
+                    ...(content?.header?.assetUrl ? { assetUrl: content.header.assetUrl } : {}),
+                  }),
             },
           }
         : content;
@@ -2758,10 +2947,25 @@ export const sendTemplateOnce = async (req: PolicyRequest, res: Response) => {
       languageCode: template.language,
       templateContent: runtimeTemplateContent,
       templateVariables: manualVariableMap,
+      metaTemplateId: template.meta_template_id || null,
+      metaTemplateName: template.meta_template_name || null,
       text: `[Single Send] ${template.name}`,
+      pricingCategory: String(template.category || "marketing").trim().toLowerCase(),
+      entryKind: "manual_reply",
     };
 
     await routeMessage(conversationId, payload, io);
+    await cancelPendingJobsByConversation(conversationId, FLOW_WAIT_JOB_TYPES);
+    clearUserTimers(runtime.botId, recipientIdentifier);
+    await query(
+      `UPDATE conversations
+       SET current_node = NULL,
+           retry_count = 0,
+           status = 'agent_pending',
+           updated_at = NOW()
+       WHERE id = $1`,
+      [conversationId]
+    );
 
     return res.status(200).json({
       success: true,

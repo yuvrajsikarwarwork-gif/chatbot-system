@@ -30,6 +30,13 @@ cloudflared.stderr.on('data', (data) => {
     if (!frontendEnv.includes('NEXT_PUBLIC_API_URL=')) frontendEnv += `\nNEXT_PUBLIC_API_URL=http://localhost:4000/api`;
     fs.writeFileSync(frontendEnvPath, frontendEnv);
 
+    // 1b. Sync backend public API base URL to the actual live tunnel URL
+    const backendEnvPath = path.join(__dirname, 'backend-api', '.env');
+    let backendEnv = fs.existsSync(backendEnvPath) ? fs.readFileSync(backendEnvPath, 'utf8') : '';
+    backendEnv = backendEnv.replace(/PUBLIC_API_BASE_URL=.*/g, `PUBLIC_API_BASE_URL=${tunnelUrl}`);
+    if (!backendEnv.includes('PUBLIC_API_BASE_URL=')) backendEnv += `\nPUBLIC_API_BASE_URL=${tunnelUrl}`;
+    fs.writeFileSync(backendEnvPath, backendEnv);
+
     // 2. Inject Cloudflare URL into Widget Config
     const widgetPath = path.join(__dirname, 'connectors', 'website', 'widget.js');
     if (fs.existsSync(widgetPath)) {

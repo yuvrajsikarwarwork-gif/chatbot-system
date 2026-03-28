@@ -1,8 +1,10 @@
 import { query } from "../config/db";
+import { findLatestSubscriptionByWorkspace } from "../models/planModel";
 import {
-  findActiveSubscriptionByWorkspace,
-  findLatestSubscriptionByWorkspace,
-} from "../models/planModel";
+  ensureCampaignRunWithinLimit,
+  getEffectiveWorkspaceBilling,
+  resolveWorkspacePlanLimit,
+} from "./billingService";
 
 const DEFAULT_MAX_CAMPAIGNS = Number(process.env.MAX_CAMPAIGNS_PER_USER || 25);
 const DEFAULT_MAX_PLATFORM_ACCOUNTS = Number(
@@ -35,12 +37,11 @@ async function tableExists(tableName: string) {
 
 async function getWorkspaceSubscription(workspaceId: string) {
   const hasPlansTable = await tableExists("plans");
-  const hasSubscriptionsTable = await tableExists("subscriptions");
-  if (!hasPlansTable || !hasSubscriptionsTable) {
+  if (!hasPlansTable) {
     return null;
   }
 
-  return findActiveSubscriptionByWorkspace(workspaceId);
+  return getEffectiveWorkspaceBilling(workspaceId);
 }
 
 export async function getWorkspaceBillingStatus(workspaceId: string) {
@@ -108,7 +109,13 @@ export async function getWorkspaceBillingStatus(workspaceId: string) {
   };
 }
 
-export async function validateWorkspaceContext(workspaceId?: string | null) {
+export async function validateWorkspaceContext(
+  workspaceId?: string | null,
+  options?: {
+    allowLocked?: boolean;
+    allowWriteBlocked?: boolean;
+  }
+) {
   if (!workspaceId) {
     return;
   }
@@ -136,16 +143,16 @@ export async function validateWorkspaceContext(workspaceId?: string | null) {
   }
 
   const workspaceStatus = String(workspace.status || "").toLowerCase();
-  if (!["active", "paused", "locked"].includes(workspaceStatus)) {
+  if (!["active", "paused", "locked", "suspended"].includes(workspaceStatus)) {
     throw { status: 400, message: "Workspace must be active" };
   }
 
-  if (workspaceStatus === "locked") {
+  if ((workspaceStatus === "locked" || workspaceStatus === "suspended") && !options?.allowLocked) {
     throw { status: 403, message: "Workspace is locked" };
   }
 
   const billingStatus = await getWorkspaceBillingStatus(workspaceId);
-  if (billingStatus.isWriteBlocked) {
+  if (billingStatus.isWriteBlocked && !options?.allowWriteBlocked) {
     throw { status: 403, message: billingStatus.message };
   }
 }
@@ -178,10 +185,19 @@ export async function assertCampaignQuota(
   );
 
   const total = Number(res.rows[0]?.total || 0);
-  const subscription = workspaceId
+  const billing = workspaceId
     ? await getWorkspaceSubscription(workspaceId)
     : null;
-  const limit = Number(subscription?.max_campaigns || DEFAULT_MAX_CAMPAIGNS);
+  const limit = resolveWorkspacePlanLimit(
+    billing?.workspace,
+    billing?.plan,
+    billing?.subscription,
+    "monthly_campaign_limit",
+    DEFAULT_MAX_CAMPAIGNS
+  );
+  if (!limit) {
+    return;
+  }
 
   if (total >= limit) {
     throw {
@@ -195,11 +211,11 @@ export async function assertPlatformAllowedByPlan(
   platform: string,
   workspaceId?: string | null
 ) {
-  const subscription = workspaceId
+  const billing = workspaceId
     ? await getWorkspaceSubscription(workspaceId)
     : null;
-  const allowedPlatforms = Array.isArray(subscription?.allowed_platforms)
-    ? subscription.allowed_platforms.map((value: string) =>
+  const allowedPlatforms = Array.isArray(billing?.plan?.allowed_platforms)
+    ? billing?.plan.allowed_platforms.map((value: string) =>
         String(value).toLowerCase()
       )
     : PLAN_ALLOWED_PLATFORMS;
@@ -240,10 +256,19 @@ export async function assertPlatformAccountQuota(
   );
 
   const total = Number(res.rows[0]?.total || 0);
-  const subscription = workspaceId
+  const billing = workspaceId
     ? await getWorkspaceSubscription(workspaceId)
     : null;
-  const limit = Number(subscription?.max_numbers || DEFAULT_MAX_PLATFORM_ACCOUNTS);
+  const limit = resolveWorkspacePlanLimit(
+    billing?.workspace,
+    billing?.plan,
+    billing?.subscription,
+    "max_numbers",
+    DEFAULT_MAX_PLATFORM_ACCOUNTS
+  );
+  if (!limit) {
+    return;
+  }
 
   if (total >= limit) {
     throw {
@@ -267,8 +292,23 @@ export async function assertUserQuota(workspaceId?: string | null) {
   );
 
   const total = Number(res.rows[0]?.total || 0);
-  const subscription = await getWorkspaceSubscription(workspaceId);
-  const limit = Number(subscription?.max_users || DEFAULT_MAX_USERS);
+  const billing = await getWorkspaceSubscription(workspaceId);
+  const limit = resolveWorkspacePlanLimit(
+    billing?.workspace,
+    billing?.plan,
+    billing?.subscription,
+    "agent_seat_limit",
+    resolveWorkspacePlanLimit(
+      billing?.workspace,
+      billing?.plan,
+      billing?.subscription,
+      "max_users",
+      DEFAULT_MAX_USERS
+    )
+  );
+  if (!limit) {
+    return;
+  }
   if (total >= limit) {
     throw { status: 403, message: `User limit reached for this plan (${limit})` };
   }
@@ -287,8 +327,23 @@ export async function assertProjectQuota(workspaceId?: string | null) {
   );
 
   const total = Number(res.rows[0]?.total || 0);
-  const subscription = await getWorkspaceSubscription(workspaceId);
-  const limit = Number(subscription?.max_projects || DEFAULT_MAX_PROJECTS);
+  const billing = await getWorkspaceSubscription(workspaceId);
+  const limit = resolveWorkspacePlanLimit(
+    billing?.workspace,
+    billing?.plan,
+    billing?.subscription,
+    "project_limit",
+    resolveWorkspacePlanLimit(
+      billing?.workspace,
+      billing?.plan,
+      billing?.subscription,
+      "max_projects",
+      DEFAULT_MAX_PROJECTS
+    )
+  );
+  if (!limit) {
+    return;
+  }
   if (total >= limit) {
     throw { status: 403, message: `Project limit reached for this plan (${limit})` };
   }
@@ -309,14 +364,38 @@ export async function assertBotQuota(workspaceId?: string | null, projectId?: st
   const res = await query(
     `SELECT COUNT(*)::int AS total
      FROM bots
-     WHERE workspace_id = $1${projectClause}`,
+     WHERE workspace_id = $1
+       AND status = 'active'${projectClause}`,
     params
   );
 
   const total = Number(res.rows[0]?.total || 0);
-  const subscription = await getWorkspaceSubscription(workspaceId);
-  const limit = Number(subscription?.max_bots || DEFAULT_MAX_BOTS);
+  const billing = await getWorkspaceSubscription(workspaceId);
+  const limit = resolveWorkspacePlanLimit(
+    billing?.workspace,
+    billing?.plan,
+    billing?.subscription,
+    "active_bot_limit",
+    resolveWorkspacePlanLimit(
+      billing?.workspace,
+      billing?.plan,
+      billing?.subscription,
+      "max_bots",
+      DEFAULT_MAX_BOTS
+    )
+  );
+  if (!limit) {
+    return;
+  }
   if (total >= limit) {
     throw { status: 403, message: `Bot limit reached for this plan (${limit})` };
   }
+}
+
+export async function assertCampaignRunLimit(workspaceId?: string | null) {
+  if (!workspaceId) {
+    return;
+  }
+
+  await ensureCampaignRunWithinLimit(workspaceId);
 }

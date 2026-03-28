@@ -16,6 +16,10 @@ import {
   createJob,
 } from "../models/queueJobModel";
 import { createSupportSurvey } from "../models/supportSurveyModel";
+import { analyzeMessageSentiment } from "./sentimentAnalysisService";
+import { retrieveKnowledgeForWorkspace } from "./ragService";
+import { normalizeWhatsAppPlatformUserId } from "./contactIdentityService";
+import { validateWorkspaceContext } from "./businessValidationService";
 
 const MAX_RETRY_LIMIT = 3;
 
@@ -48,39 +52,6 @@ if (!globalAny.activeTimeouts) {
 
 const activeReminders = globalAny.activeReminders;
 const activeTimeouts = globalAny.activeTimeouts;
-
-const STRONG_NEGATIVE_PATTERNS = [
-  "very bad",
-  "not working",
-  "worst",
-  "angry",
-  "frustrated",
-  "cancel order",
-  "refund",
-  "complaint",
-  "fake",
-  "useless",
-  "hate",
-];
-
-const NEGATIVE_KEYWORDS = new Set([
-  "angry",
-  "annoyed",
-  "awful",
-  "bad",
-  "cancel",
-  "complaint",
-  "disappointed",
-  "frustrated",
-  "hate",
-  "issue",
-  "problem",
-  "refund",
-  "scam",
-  "terrible",
-  "useless",
-  "worst",
-]);
 
 interface IncomingMessageOptions {
   entryKey?: string;
@@ -396,6 +367,51 @@ const findNextNode = (
 ) => {
   const edge = findNextEdge(currentNodeId, edges, handles);
   return nodes.find((node: any) => String(node.id) === String(edge?.target));
+};
+
+const getBotStoredTriggerKeywords = async (botId: string) => {
+  const res = await query(
+    `SELECT trigger_keywords
+     FROM bots
+     WHERE id = $1
+     LIMIT 1`,
+    [botId]
+  );
+
+  return String(res.rows[0]?.trigger_keywords || "")
+    .split(",")
+    .map((keyword) => keyword.trim().toLowerCase())
+    .filter(Boolean);
+};
+
+const hasBotStoredTriggerKeywordMatch = async (botId: string, text: string) => {
+  const keywords = await getBotStoredTriggerKeywords(botId);
+  return keywords.some((keyword) => keywordMatchesText(keyword, text));
+};
+
+const findBotStoredTriggerFlowMatch = async (
+  botId: string,
+  flows: FlowRuntimeRecord[],
+  text: string
+) => {
+  if (!(await hasBotStoredTriggerKeywordMatch(botId, text))) {
+    return null;
+  }
+
+  const selectedFlow = flows.find((flow) => flow.is_default) || flows[0] || null;
+  if (!selectedFlow) {
+    return null;
+  }
+
+  const startNode = findStartNodeTargetInFlow(selectedFlow.flow_json);
+  if (!startNode) {
+    return null;
+  }
+
+  return {
+    flow: selectedFlow,
+    node: startNode,
+  };
 };
 
 const FLOW_WAIT_JOB_TYPES = ["flow_wait_reminder", "flow_wait_timeout"];
@@ -791,34 +807,11 @@ export const botHasInboundTriggerMatch = async (
   }
 
   const flows = await loadEligibleFlows(botId, projectId || null);
-  return flows.some((flow) => Boolean(findTriggeredNodeInFlow(flow.flow_json, text)));
-};
-
-const calculateNegativeSignal = (input: string) => {
-  const text = String(input || "").toLowerCase().trim();
-  if (!text) {
-    return 0;
+  if (flows.some((flow) => Boolean(findTriggeredNodeInFlow(flow.flow_json, text)))) {
+    return true;
   }
 
-  let score = 0;
-  for (const phrase of STRONG_NEGATIVE_PATTERNS) {
-    if (text.includes(phrase)) {
-      score += 2;
-    }
-  }
-
-  const words = text.split(/[^a-z0-9]+/).filter(Boolean);
-  for (const word of words) {
-    if (NEGATIVE_KEYWORDS.has(word)) {
-      score += 1;
-    }
-  }
-
-  if (text.includes("!!!")) {
-    score += 1;
-  }
-
-  return score;
+  return hasBotStoredTriggerKeywordMatch(botId, text);
 };
 
 const shouldTriggerHumanTakeover = async (conversation: any, incomingText: string) => {
@@ -831,7 +824,8 @@ const shouldTriggerHumanTakeover = async (conversation: any, incomingText: strin
     return false;
   }
 
-  return calculateNegativeSignal(incomingText) >= 2;
+  const sentiment = await analyzeMessageSentiment(incomingText);
+  return sentiment.shouldEscalate;
 };
 
 const handleValidationError = async (conversation: any, lastNode: any) => {
@@ -909,11 +903,13 @@ export const executeFlowFromNode = async (
     let endedByTerminalNode = false;
 
     const conversationRes = await query(
-      "SELECT variables FROM conversations WHERE id = $1",
+      "SELECT variables, workspace_id, project_id FROM conversations WHERE id = $1",
       [conversationId]
     );
 
     let variables = parseVariables(conversationRes.rows[0]?.variables);
+    const conversationWorkspaceId = String(conversationRes.rows[0]?.workspace_id || "").trim() || null;
+    const conversationProjectId = String(conversationRes.rows[0]?.project_id || "").trim() || null;
 
     while (currentNode && loop < 25) {
       loop++;
@@ -1143,6 +1139,42 @@ export const executeFlowFromNode = async (
           console.error("API node error", err);
           nextHandles = ["fail", "error", "response"];
         }
+      } else if (currentNodeType === "knowledge_lookup") {
+        try {
+          const lookupQuery = replaceVariables(
+            String(data.query || data.prompt || data.search || "").trim(),
+            variables
+          );
+          const saveTo = String(data.saveTo || data.variable || "knowledge_results").trim();
+          const saveTextTo = String(data.saveTextTo || "").trim();
+          const scope = String(data.scope || "project").trim().toLowerCase();
+          const limit = Math.max(1, Math.min(Number(data.limit || 3), 10));
+
+          if (!conversationWorkspaceId) {
+            throw new Error("Conversation is missing workspace context.");
+          }
+
+          if (!lookupQuery) {
+            nextHandles = ["empty", "no_results", "response"];
+          } else {
+            const chunks = await retrieveKnowledgeForWorkspace({
+              workspaceId: conversationWorkspaceId,
+              projectId: scope === "workspace" ? null : conversationProjectId,
+              query: lookupQuery,
+              limit,
+            });
+
+            variables[saveTo] = chunks;
+            if (saveTextTo) {
+              variables[saveTextTo] = chunks.map((chunk) => chunk.content).join("\n\n");
+            }
+            await persistConversationVariables(conversationId, variables);
+            nextHandles = chunks.length > 0 ? ["success", "response"] : ["empty", "no_results", "response"];
+          }
+        } catch (err) {
+          console.error("Knowledge lookup node error", err);
+          nextHandles = ["fail", "error", "response"];
+        }
       } else if (currentNodeType === "save") {
         if (data.variable && data.value !== undefined) {
           variables[data.variable] =
@@ -1317,6 +1349,10 @@ export const processIncomingMessage = async (
 ) => {
   try {
     const normalizedChannel = normalizePlatform(channel);
+    const normalizedPlatformUserId =
+      normalizedChannel === "whatsapp"
+        ? normalizeWhatsAppPlatformUserId(platformUserId) || platformUserId
+        : platformUserId;
     const text = (incomingText || "").toLowerCase().trim();
     const resolvedContext = await resolveCampaignContext(
       botId,
@@ -1334,6 +1370,22 @@ export const processIncomingMessage = async (
       };
     }
 
+    try {
+      await validateWorkspaceContext(resolvedContext.workspaceId);
+    } catch (validationError: any) {
+      if (validationError?.status === 403) {
+        console.warn(
+          `[FlowEngine] Skipping inbound runtime for workspace ${resolvedContext.workspaceId}: ${validationError.message}`
+        );
+        return {
+          conversationId: null,
+          actions: [],
+        };
+      }
+
+      throw validationError;
+    }
+
     const botRes = await query(
       "SELECT id FROM bots WHERE id = $1 AND status = 'active'",
       [botId]
@@ -1347,17 +1399,17 @@ export const processIncomingMessage = async (
       botId,
       workspaceId: resolvedContext.workspaceId || null,
       platform: normalizedChannel,
-      platformUserId,
+      platformUserId: normalizedPlatformUserId,
       name: userName,
-      phone: normalizedChannel === "whatsapp" ? platformUserId : null,
-      email: normalizedChannel === "email" ? platformUserId : null,
+      phone: normalizedChannel === "whatsapp" ? normalizedPlatformUserId : null,
+      email: normalizedChannel === "email" ? normalizedPlatformUserId : null,
     });
 
     const availableFlows = await loadEligibleFlows(
       botId,
       resolvedContext.projectId || null
     );
-    const matchedTriggerFlow = text
+    const explicitMatchedTriggerFlow = text
       ? availableFlows.reduce<{ flow: FlowRuntimeRecord; node: any } | null>(
           (match, flow) => {
             if (match) {
@@ -1369,6 +1421,11 @@ export const processIncomingMessage = async (
           null
         )
       : null;
+    const botKeywordMatchedTriggerFlow =
+      text && !explicitMatchedTriggerFlow
+        ? await findBotStoredTriggerFlowMatch(botId, availableFlows, text)
+        : null;
+    const matchedTriggerFlow = explicitMatchedTriggerFlow || botKeywordMatchedTriggerFlow;
     const hasAnyTriggerFlows = availableFlows.some((flow) => flowHasTriggerNodes(flow.flow_json));
     const shouldPreferActiveConversation =
       !matchedTriggerFlow &&
@@ -1379,7 +1436,7 @@ export const processIncomingMessage = async (
           botId,
           contact.id,
           normalizedChannel,
-          resolvedContext.projectId || null
+          normalizedChannel === "whatsapp" ? null : resolvedContext.projectId || null
         )
       : null;
     const activeConversation =
@@ -1388,7 +1445,7 @@ export const processIncomingMessage = async (
       botId,
       contact.id,
       normalizedChannel,
-      resolvedContext.projectId || null
+      normalizedChannel === "whatsapp" ? null : resolvedContext.projectId || null
     );
 
     let conversation =
@@ -1519,7 +1576,7 @@ export const processIncomingMessage = async (
           normalizedChannel,
           conversation.platform || normalizedChannel,
           conversation.platform_account_id || resolvedContext.platformAccountId || null,
-          platformUserId,
+          normalizedPlatformUserId,
           JSON.stringify({ type: "text", text: incomingText }),
         ]
       );

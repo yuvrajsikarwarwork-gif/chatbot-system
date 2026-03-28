@@ -1,16 +1,19 @@
 import Link from "next/link";
 import { useEffect } from "react";
+import { useRouter } from "next/router";
 
 import { sessionService } from "../services/sessionService";
 import { useBotStore } from "../store/botStore";
 
 export default function LogoutPage() {
+  const router = useRouter();
   const setSelectedBotId = useBotStore((state) => state.setSelectedBotId);
 
   useEffect(() => {
     sessionService.clear();
     setSelectedBotId(null);
-  }, [setSelectedBotId]);
+    router.replace("/login").catch(() => undefined);
+  }, [router, setSelectedBotId]);
 
   return (
     <div className="flex min-h-screen items-center justify-center px-4">
@@ -22,7 +25,7 @@ export default function LogoutPage() {
           You are signed out
         </h1>
         <p className="mt-3 text-sm leading-6 text-[var(--muted)]">
-          Your session has been cleared. Use the button below to return to the proper login screen.
+          Your session has been cleared. Redirecting you to the login screen now.
         </p>
 
         <div className="mt-6 flex flex-col gap-3 sm:flex-row">

@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { getPermissionCandidates } from "../utils/permissionAliases";
 
 interface User {
   id: string;
@@ -79,6 +80,7 @@ interface AuthState {
   activeWorkspace: ActiveWorkspace;
   activeProject: ActiveProject | null;
   resolvedAccess: ResolvedAccessSnapshot | null;
+  hasHydrated: boolean;
   setAuth: (
     user: User,
     token: string,
@@ -97,6 +99,7 @@ interface AuthState {
   }) => void;
   setActiveWorkspace: (workspaceId: string) => void;
   setActiveProject: (project: ActiveProject | null) => void;
+  setHasHydrated: (value: boolean) => void;
   clearAuth: () => void;
   isAuthenticated: () => boolean;
   hasWorkspaceRole: (
@@ -130,22 +133,6 @@ function canonicalProjectRole(role: ProjectMembership["role"]) {
     return "editor" as const;
   }
   return role;
-}
-
-const PERMISSION_ALIASES: Record<string, string[]> = {
-  create_campaign: ["create_campaign", "can_create_campaign"],
-  manage_project: ["manage_project", "create_projects", "edit_projects", "delete_projects", "manage_workspace"],
-  manage_integrations: ["manage_integrations", "can_manage_platform_accounts"],
-  edit_bot: ["edit_bot", "edit_bots"],
-  view_conversations: ["view_conversations", "view_conversation"],
-  reply_conversation: ["reply_conversation", "view_conversation"],
-  view_analytics: ["view_analytics", "view_workspace", "manage_workspace"],
-  manage_plan: ["manage_plan", "manage_workspace"],
-  support_access: ["support_access", "support_mode"],
-};
-
-function getPermissionCandidates(permission: string) {
-  return Array.from(new Set([permission, ...(PERMISSION_ALIASES[permission] || [])]));
 }
 
 const DEFAULT_WORKSPACE_PERMISSIONS: Record<"workspace_admin" | "editor" | "agent" | "viewer", string[]> = {
@@ -226,6 +213,7 @@ export const useAuthStore = create<AuthState>()(
       activeWorkspace: null,
       activeProject: null,
       resolvedAccess: null,
+      hasHydrated: false,
       setAuth: (
         user,
         token,
@@ -266,11 +254,12 @@ export const useAuthStore = create<AuthState>()(
         set((state) => ({
           activeWorkspace:
             state.memberships.find((membership) => membership.workspace_id === workspaceId) ||
-            state.activeWorkspace,
+            null,
           activeProject: null,
           resolvedAccess: null,
         })),
       setActiveProject: (project) => set({ activeProject: project, resolvedAccess: null }),
+      setHasHydrated: (value) => set({ hasHydrated: value }),
       clearAuth: () =>
         set({
           user: null,
@@ -280,15 +269,32 @@ export const useAuthStore = create<AuthState>()(
           activeWorkspace: null,
           activeProject: null,
           resolvedAccess: null,
+          hasHydrated: true,
         }),
       isAuthenticated: () => !!get().token,
       hasWorkspaceRole: (workspaceId, allowedRoles) => {
-        if (["super_admin", "developer"].includes(String(get().user?.role || ""))) {
-          return true;
+        if (!workspaceId) {
+          return false;
         }
 
-        if (!workspaceId) {
-          return true;
+        const resolvedAccess = get().resolvedAccess;
+        if (
+          ["super_admin", "developer"].includes(String(get().user?.role || "")) &&
+          resolvedAccess?.workspace_id === workspaceId
+        ) {
+          const resolvedRole = resolvedAccess?.workspace_role;
+          if (!resolvedRole && !resolvedAccess?.support_access) {
+            return false;
+          }
+          if (resolvedAccess?.support_access) {
+            return allowedRoles.includes("workspace_admin");
+          }
+          if (!resolvedRole) {
+            return false;
+          }
+
+          const minimumRank = Math.min(...allowedRoles.map((role) => ROLE_RANK[canonicalWorkspaceRole(role)]));
+          return ROLE_RANK[canonicalWorkspaceRole(resolvedRole as WorkspaceMembership["role"])] >= minimumRank;
         }
 
         const membership = get().memberships.find(
@@ -302,12 +308,19 @@ export const useAuthStore = create<AuthState>()(
         return ROLE_RANK[canonicalWorkspaceRole(membership.role)] >= minimumRank;
       },
       hasWorkspacePermission: (workspaceId, permission) => {
-        if (["super_admin", "developer"].includes(String(get().user?.role || ""))) {
-          return true;
+        if (!workspaceId) {
+          return false;
         }
 
-        if (!workspaceId) {
-          return true;
+        const resolvedAccess = get().resolvedAccess;
+        if (
+          ["super_admin", "developer"].includes(String(get().user?.role || "")) &&
+          resolvedAccess?.workspace_id === workspaceId
+        ) {
+          const permissionMap = resolvedAccess?.workspace_permissions || {};
+          return getPermissionCandidates(permission).some((candidate) =>
+            Boolean(permissionMap[candidate])
+          );
         }
 
         const membership = get().memberships.find(
@@ -351,6 +364,9 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: "auth-storage",
+      onRehydrateStorage: () => (state) => {
+        state?.setHasHydrated(true);
+      },
     }
   )
 );

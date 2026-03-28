@@ -35,7 +35,7 @@ export default function ProjectSettingsPage() {
   const setActiveProject = useAuthStore((state) => state.setActiveProject);
   const hasWorkspacePermission = useAuthStore((state) => state.hasWorkspacePermission);
   const getProjectRole = useAuthStore((state) => state.getProjectRole);
-  const { canViewPage } = useVisibility();
+  const { canViewPage, isPlatformOperator } = useVisibility();
   const [settingsForm, setSettingsForm] = useState(EMPTY_SETTINGS_FORM);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -46,18 +46,20 @@ export default function ProjectSettingsPage() {
 
   const activeWorkspaceId = activeWorkspace?.workspace_id || "";
   const canViewProjectsPage = canViewPage("projects");
-  const canManageProjects = activeWorkspaceId
+  const canManageProjects = isPlatformOperator || (activeWorkspaceId
     ? hasWorkspacePermission(activeWorkspaceId, "edit_projects")
-    : false;
-  const canDeleteProject = activeWorkspaceId
+    : false);
+  const canDeleteProject = isPlatformOperator || (activeWorkspaceId
     ? hasWorkspacePermission(activeWorkspaceId, "delete_projects")
-    : false;
+    : false);
   const selectedProjectRole = projectId ? getProjectRole(String(projectId)) : null;
-  const canManageSelectedProject = canManageProjects || selectedProjectRole === "project_admin";
+  const canManageSelectedProject = isPlatformOperator || canManageProjects || selectedProjectRole === "project_admin";
 
   const tabs = useMemo(
     () =>
-      source === "project"
+      isPlatformOperator
+        ? [{ label: "Project Settings", href: `/projects/${projectId}/settings?from=project` }]
+        : source === "project"
         ? [
             { label: "Project Settings", href: `/projects/${projectId}/settings?from=project` },
             { label: "Members", href: "/users-access/members" },
@@ -69,7 +71,7 @@ export default function ProjectSettingsPage() {
               ? [{ label: "Billing", href: `/workspaces/${activeWorkspace.workspace_id}/billing` }]
               : []),
           ],
-    [activeWorkspace?.workspace_id, projectId, source]
+    [activeWorkspace?.workspace_id, isPlatformOperator, projectId, source]
   );
 
   useEffect(() => {

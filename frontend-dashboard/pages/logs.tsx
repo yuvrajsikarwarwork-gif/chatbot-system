@@ -1,28 +1,71 @@
 import Link from "next/link";
 
+import PageAccessNotice from "../components/access/PageAccessNotice";
 import DashboardLayout from "../components/layout/DashboardLayout";
+import { useVisibility } from "../hooks/useVisibility";
 
 export default function LogsPage() {
+  const { canViewPage } = useVisibility();
+  const canViewLogsPage = canViewPage("logs");
+
   return (
     <DashboardLayout>
-      <div className="mx-auto max-w-5xl space-y-6">
-        <section className="rounded-[1.9rem] border border-[var(--glass-border)] bg-[var(--glass-surface)] p-6 shadow-[var(--shadow-glass)] backdrop-blur-2xl">
-          <div className="max-w-3xl">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.28em] text-[var(--muted)]">
-              Logs
+      {!canViewLogsPage ? (
+        <PageAccessNotice
+          title="Platform logs are restricted for this role"
+          description="Only platform operators can review cross-workspace operational trails."
+          href="/"
+          ctaLabel="Open dashboard"
+        />
+      ) : (
+        <div className="mx-auto max-w-6xl space-y-6">
+          <section className="rounded-[1.75rem] border border-[var(--line)] bg-[var(--surface)] p-6 shadow-[var(--shadow-soft)]">
+            <div className="max-w-3xl">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--muted)]">
+                System Logs
+              </div>
+              <h1 className="mt-3 text-[1.6rem] font-semibold tracking-tight text-[var(--text)]">
+                Platform operational visibility
+              </h1>
+              <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
+                The backend does not yet expose a dedicated cross-workspace log stream. Use the linked consoles below for the current supported audit and support trail.
+              </p>
             </div>
-            <h1 className="mt-3 bg-[linear-gradient(180deg,var(--text),color-mix(in_srgb,var(--text)_72%,var(--accent)_28%))] bg-clip-text text-[1.7rem] font-black tracking-[-0.03em] text-transparent">
-              Audit and system logs
-            </h1>
-            <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
-              The dedicated platform log console is still consolidating. Use audit views for the current operational trail.
-            </p>
+          </section>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <Link
+              href="/audit"
+              className="rounded-[1.4rem] border border-[var(--line)] bg-[var(--surface)] p-5 shadow-sm transition duration-200 hover:border-[var(--line-strong)] hover:bg-[var(--surface-muted)]"
+            >
+              <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">
+                Audit Trail
+              </div>
+              <div className="mt-2 text-lg font-semibold text-[var(--text)]">Workspace audit logs</div>
+              <div className="mt-2 text-sm text-[var(--muted)]">
+                Review workspace-scoped audit events for permissions, assignments, and operational changes.
+              </div>
+            </Link>
+
+            <Link
+              href="/support/tickets"
+              className="rounded-[1.4rem] border border-[var(--line)] bg-[var(--surface)] p-5 shadow-sm transition duration-200 hover:border-[var(--line-strong)] hover:bg-[var(--surface-muted)]"
+            >
+              <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">
+                Support Ops
+              </div>
+              <div className="mt-2 text-lg font-semibold text-[var(--text)]">Support requests and grants</div>
+              <div className="mt-2 text-sm text-[var(--muted)]">
+                Review temporary support-access history and pending support requests.
+              </div>
+            </Link>
           </div>
-        </section>
-        <Link href="/audit" className="inline-flex rounded-xl border border-[rgba(129,140,248,0.4)] bg-[linear-gradient(135deg,var(--accent),var(--accent-strong))] px-4 py-3 text-[11px] font-black uppercase tracking-[0.18em] text-white shadow-[0_18px_30px_var(--accent-glow)] transition duration-300 hover:-translate-y-0.5">
-          Open audit
-        </Link>
-      </div>
+
+          <section className="rounded-[1.5rem] border border-dashed border-[var(--line)] bg-[var(--surface)] px-5 py-8 text-sm text-[var(--muted)]">
+            Missing backend capability: centralized platform log aggregation. When we add that API, this page should become the real cross-workspace log console instead of a routing hub.
+          </section>
+        </div>
+      )}
     </DashboardLayout>
   );
 }

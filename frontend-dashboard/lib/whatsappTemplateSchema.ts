@@ -14,6 +14,11 @@ export type TemplateButton = {
   type?: string | null;
   title?: string | null;
   value?: string | null;
+  urlMode?: string | null;
+  sampleValue?: string | null;
+  flowId?: string | null;
+  catalogId?: string | null;
+  activeFor?: string | null;
 };
 
 export type TemplateHeader = {
@@ -21,6 +26,16 @@ export type TemplateHeader = {
   text?: string | null;
   assetId?: string | null;
   assetUrl?: string | null;
+  latitude?: string | null;
+  longitude?: string | null;
+  placeName?: string | null;
+  address?: string | null;
+};
+
+export type TemplateSamples = {
+  headerText?: string[] | null;
+  bodyText?: string[] | null;
+  dynamicUrls?: string[] | null;
 };
 
 export type TemplateContent = {
@@ -28,6 +43,7 @@ export type TemplateContent = {
   body?: string | null;
   footer?: string | null;
   buttons?: TemplateButton[] | null;
+  samples?: TemplateSamples | null;
 };
 
 export type TemplateValidationInput = {
@@ -80,8 +96,11 @@ function getNormalizedContent(input: TemplateValidationInput) {
     headerText: String(header?.text ?? input.header ?? ""),
     headerAssetId: normalizeText(header?.assetId),
     headerAssetUrl: normalizeText(header?.assetUrl),
+    headerLatitude: normalizeText(header?.latitude),
+    headerLongitude: normalizeText(header?.longitude),
     body: String(content.body ?? input.body ?? ""),
     footer: String(content.footer ?? input.footer ?? ""),
+    samples: content.samples || {},
     buttons: Array.isArray(content.buttons)
       ? content.buttons
       : Array.isArray(input.buttons)
@@ -178,6 +197,12 @@ export function validateTemplateInput(
     }
   }
 
+  if (normalized.headerType === "location") {
+    if (!normalized.headerLatitude || !normalized.headerLongitude) {
+      errors.push("WhatsApp location headers need latitude and longitude.");
+    }
+  }
+
   if (bodyVariables.length > 0) {
     if (!hasSequentialVariables(bodyText)) {
       errors.push("WhatsApp body variables must be sequential without gaps.");
@@ -191,7 +216,6 @@ export function validateTemplateInput(
   }
 
   const buttons = normalized.buttons;
-  const quickReplies = buttons.filter((button) => normalizeText(button?.type).toLowerCase() === "quick_reply");
   const urlButtons = buttons.filter((button) => normalizeText(button?.type).toLowerCase() === "url");
   const phoneButtons = buttons.filter((button) => normalizeText(button?.type).toLowerCase() === "phone");
   const copyCodeButtons = buttons.filter((button) => normalizeText(button?.type).toLowerCase() === "copy_code");
@@ -215,8 +239,11 @@ export function validateTemplateInput(
     const type = normalizeText(button?.type).toLowerCase();
     const title = normalizeText(button?.title);
     const value = normalizeText(button?.value);
+    const urlMode = normalizeText(button?.urlMode).toLowerCase();
+    const sampleValue = normalizeText(button?.sampleValue);
     const isQuickReply = type === "quick_reply";
-    const isCta = type === "url" || type === "phone" || type === "copy_code" || type === "flow" || type === "catalog";
+    const isCta =
+      type === "url" || type === "phone" || type === "copy_code" || type === "flow" || type === "catalog";
 
     if (!title) {
       errors.push("Every WhatsApp button needs visible button text.");
@@ -249,9 +276,12 @@ export function validateTemplateInput(
         errors.push(`URL button "${title}" needs a website URL.`);
       } else {
         const variables = extractVariables(value);
-        if (variables.length > 0) {
+        if (urlMode === "dynamic" || variables.length > 0) {
           if (variables.length !== 1 || !value.endsWith(`{{${variables[0]}}}`)) {
             errors.push(`Dynamic URL button "${title}" must end with exactly one variable.`);
+          }
+          if (!sampleValue) {
+            errors.push(`Dynamic URL button "${title}" needs a sample value.`);
           }
         } else if (!URL_PATTERN.test(value)) {
           errors.push(`URL button "${title}" needs a valid static URL.`);
@@ -272,6 +302,14 @@ export function validateTemplateInput(
       } else if (value.length > 15) {
         errors.push(`Copy code button "${title}" must stay within 15 characters.`);
       }
+    }
+
+    if (type === "flow" && !value && !normalizeText(button?.flowId)) {
+      errors.push(`Flow button "${title}" needs a linked flow id.`);
+    }
+
+    if (type === "catalog" && !value && !normalizeText(button?.catalogId)) {
+      errors.push(`Catalog button "${title}" needs a linked catalog id.`);
     }
   }
 

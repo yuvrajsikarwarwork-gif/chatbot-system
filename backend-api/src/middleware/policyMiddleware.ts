@@ -134,7 +134,14 @@ export const resolveWorkspaceContext: RequestHandler = async (req, res, next) =>
       return;
     }
 
-    await validateWorkspaceContext(workspaceId);
+    const isReadOnlyRequest =
+      String(authReq.method || "GET").toUpperCase() === "GET" ||
+      String(authReq.method || "GET").toUpperCase() === "HEAD";
+
+    await validateWorkspaceContext(workspaceId, {
+      allowLocked: isReadOnlyRequest,
+      allowWriteBlocked: isReadOnlyRequest,
+    });
     authReq.workspaceMembership = await assertWorkspaceMembership(userId, workspaceId);
     next();
   } catch (err) {

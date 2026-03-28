@@ -2,6 +2,8 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import { ArrowLeft } from "lucide-react";
 import type { ReactNode } from "react";
+import { useVisibility } from "../../hooks/useVisibility";
+import { useAuthStore } from "../../store/authStore";
 
 type BackTarget = {
   href: string;
@@ -21,13 +23,29 @@ function titleize(value: string) {
     .join(" ");
 }
 
-function getBackTarget(pathname: string, query: Record<string, any>): BackTarget | null {
+function getPlatformBackTarget(workspaceId: string): BackTarget {
+  return workspaceId
+    ? { href: `/workspaces/${workspaceId}`, label: "Back to workspace overview" }
+    : { href: "/workspaces", label: "Back to workspaces" };
+}
+
+function getBackTarget(
+  pathname: string,
+  query: Record<string, any>,
+  options: {
+    isPlatformOperator: boolean;
+    supportAccess: boolean;
+    activeWorkspaceId: string;
+  }
+): BackTarget | null {
   const campaignId = String(query.campaignId || "").trim();
   const projectId = String(query.projectId || "").trim();
   const workspaceId = String(query.workspaceId || "").trim();
   const source = String(query.from || "").trim();
   const returnTo = String(query.returnTo || "").trim();
   const returnLabel = String(query.returnLabel || "").trim();
+  const effectiveWorkspaceId = workspaceId || options.activeWorkspaceId;
+  const platformMode = options.isPlatformOperator || options.supportAccess;
 
   if (returnTo) {
     return {
@@ -59,12 +77,16 @@ function getBackTarget(pathname: string, query: Record<string, any>): BackTarget
     case "/plans":
     case "/platform-accounts":
     case "/system-settings":
+      return { href: "/workspaces", label: "Back to workspaces" };
     case "/tickets":
     case "/audit":
     case "/billing":
     case "/support":
+      return platformMode
+        ? getPlatformBackTarget(effectiveWorkspaceId)
+        : { href: "/dashboard", label: "Back to dashboard" };
     case "/workspaces":
-      return { href: "/dashboard", label: "Back to dashboard" };
+      return platformMode ? null : { href: "/dashboard", label: "Back to dashboard" };
     case "/campaigns/new":
       return { href: "/campaigns", label: "Back to campaigns" };
     case "/campaigns/[campaignId]":
@@ -97,38 +119,57 @@ function getBackTarget(pathname: string, query: Record<string, any>): BackTarget
       return { href: "/workspaces", label: "Back to workspaces" };
     case "/workspaces/[workspaceId]/support-access":
     case "/workspaces/[workspaceId]/billing":
-      return { href: "/settings", label: "Back to settings" };
+      return platformMode
+        ? getPlatformBackTarget(effectiveWorkspaceId)
+        : { href: "/settings", label: "Back to settings" };
     case "/workspaces/[workspaceId]/members-access":
       return { href: workspaceId ? `/workspaces/${workspaceId}` : "/workspaces", label: "Back to workspace overview" };
     case "/support/new":
     case "/support/access":
     case "/support/tickets":
-      return { href: "/support/tickets", label: "Back to support" };
+      return { href: "/support", label: "Back to support" };
     case "/users-access/roles":
     case "/users-access/platform-users":
-      return { href: "/users-access/roles", label: "Back to access control" };
+      return { href: "/users-access", label: "Back to access control" };
     case "/users-access/project-access":
     case "/users-access/members":
     case "/users-access/overrides":
     case "/users-access/agent-scope":
-      return { href: "/users-access/members", label: "Back to access control" };
+      return { href: "/users-access", label: "Back to access control" };
     default: {
       const parts = pathname.split("/").filter(Boolean);
       if (parts.length <= 1) {
-        return { href: "/dashboard", label: "Back to dashboard" };
+        return platformMode
+          ? getPlatformBackTarget(effectiveWorkspaceId)
+          : { href: "/dashboard", label: "Back to dashboard" };
       }
 
       const parentParts = parts.slice(0, -1).filter((part) => !part.startsWith("["));
-      const href = parentParts.length > 0 ? `/${parentParts.join("/")}` : "/dashboard";
+      const href =
+        parentParts.length > 0
+          ? `/${parentParts.join("/")}`
+          : platformMode
+            ? getPlatformBackTarget(effectiveWorkspaceId).href
+            : "/dashboard";
       const lastParent = parentParts[parentParts.length - 1] || "dashboard";
-      return { href, label: `Back to ${titleize(lastParent)}` };
+      return parentParts.length > 0
+        ? { href, label: `Back to ${titleize(lastParent)}` }
+        : platformMode
+          ? getPlatformBackTarget(effectiveWorkspaceId)
+          : { href, label: "Back to dashboard" };
     }
   }
 }
 
 export default function GlobalBackStrip({ className = "", labelOverride }: GlobalBackStripProps) {
   const router = useRouter();
-  const target = getBackTarget(router.pathname, router.query);
+  const activeWorkspaceId = useAuthStore((state) => state.activeWorkspace?.workspace_id || "");
+  const { isPlatformOperator, supportAccess } = useVisibility();
+  const target = getBackTarget(router.pathname, router.query, {
+    isPlatformOperator,
+    supportAccess,
+    activeWorkspaceId,
+  });
 
   if (!target) {
     return null;

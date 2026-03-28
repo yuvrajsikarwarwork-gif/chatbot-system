@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { Building2, Plus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import PageAccessNotice from "../components/access/PageAccessNotice";
@@ -8,123 +7,95 @@ import { useVisibility } from "../hooks/useVisibility";
 import { planService } from "../services/planService";
 import { workspaceService, type Workspace } from "../services/workspaceService";
 import { useAuthStore } from "../store/authStore";
+import { notify } from "../store/uiStore";
 
 const EMPTY_FORM = {
-  name: "",
+  companyName: "",
+  companyWebsite: "",
+  industry: "",
+  gstin: "",
+  ownerName: "",
+  ownerEmail: "",
+  ownerPhone: "",
   planId: "starter",
+  billingCycle: "monthly",
+  initialWalletTopup: "",
   status: "active",
 };
 
 export default function WorkspacesPage() {
-  const user = useAuthStore((state) => state.user);
-  const setActiveWorkspace = useAuthStore((state) => state.setActiveWorkspace);
   const { canViewPage } = useVisibility();
-
+  const setActiveWorkspace = useAuthStore((state) => state.setActiveWorkspace);
+  const hasHydrated = useAuthStore((state) => state.hasHydrated);
+  const user = useAuthStore((state) => state.user);
+  const resolvedAccess = useAuthStore((state) => state.resolvedAccess);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [plans, setPlans] = useState<Array<{ id: string; name?: string }>>([]);
   const [form, setForm] = useState(EMPTY_FORM);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
 
   const canViewWorkspacesPage = canViewPage("workspaces");
-  const isPlatformOperator = user?.role === "super_admin" || user?.role === "developer";
+  const accessPending =
+    !hasHydrated ||
+    (["super_admin", "developer"].includes(String(user?.role || "")) &&
+      !resolvedAccess);
 
   const loadPage = async () => {
-    if (!canViewWorkspacesPage) {
-      setWorkspaces([]);
-      setPlans([]);
-      return;
-    }
-
     setLoading(true);
     try {
       setError("");
-      const [workspaceRows, planRows] = await Promise.all([
-        workspaceService.list(),
-        planService.list(),
-      ]);
+      const [workspaceRows, planRows] = await Promise.all([workspaceService.list(), planService.list()]);
       setWorkspaces(Array.isArray(workspaceRows) ? workspaceRows : []);
       setPlans(Array.isArray(planRows) ? planRows : []);
     } catch (err: any) {
-      console.error("Failed to load workspace directory", err);
+      setError(err?.response?.data?.error || "Failed to load workspaces");
       setWorkspaces([]);
       setPlans([]);
-      setError(err?.response?.data?.error || "Failed to load workspaces");
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    if (!canViewWorkspacesPage) {
-      setWorkspaces([]);
-      setPlans([]);
-      return;
-    }
-
-    let cancelled = false;
-
-    const run = async () => {
-      setLoading(true);
-      try {
-        setError("");
-        const [workspaceRows, planRows] = await Promise.all([
-          workspaceService.list(),
-          planService.list(),
-        ]);
-        if (!cancelled) {
-          setWorkspaces(Array.isArray(workspaceRows) ? workspaceRows : []);
-          setPlans(Array.isArray(planRows) ? planRows : []);
-        }
-      } catch (err: any) {
-        console.error("Failed to load workspace directory", err);
-        if (!cancelled) {
-          setWorkspaces([]);
-          setPlans([]);
-          setError(err?.response?.data?.error || "Failed to load workspaces");
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    };
-
-    run().catch(console.error);
-
-    return () => {
-      cancelled = true;
-    };
+    if (!canViewWorkspacesPage) return;
+    loadPage().catch(console.error);
   }, [canViewWorkspacesPage]);
 
   const stats = useMemo(
     () => ({
       total: workspaces.length,
       active: workspaces.filter((workspace) => workspace.status === "active").length,
-      locked: workspaces.filter((workspace) => workspace.status === "locked").length,
+      suspended: workspaces.filter((workspace) => workspace.status === "suspended").length,
     }),
     [workspaces]
   );
 
   const handleCreate = async () => {
-    if (!form.name.trim()) {
-      setError("Workspace name is required.");
+    if (!form.companyName.trim() || !form.ownerName.trim() || !form.ownerEmail.trim()) {
+      setError("Company name, owner name, and owner email are required.");
       return;
     }
 
     try {
       setSaving(true);
       setError("");
-      setSuccess("");
       await workspaceService.create({
-        name: form.name.trim(),
+        companyName: form.companyName,
+        companyWebsite: form.companyWebsite || null,
+        industry: form.industry || null,
+        gstin: form.gstin || null,
+        ownerName: form.ownerName,
+        ownerEmail: form.ownerEmail,
+        ownerPhone: form.ownerPhone || null,
         planId: form.planId,
+        billingCycle: form.billingCycle,
+        initialWalletTopup: Number(form.initialWalletTopup || 0),
         status: form.status,
       });
+      notify("Workspace created.", "success");
       setForm(EMPTY_FORM);
-      setSuccess("Workspace created.");
       await loadPage();
     } catch (err: any) {
       setError(err?.response?.data?.error || "Failed to create workspace");
@@ -135,196 +106,132 @@ export default function WorkspacesPage() {
 
   return (
     <DashboardLayout>
-      {!canViewWorkspacesPage ? (
+      {accessPending ? (
+        <section className="mx-auto max-w-4xl rounded-[1.5rem] border border-dashed border-[var(--line)] bg-[var(--surface)] px-6 py-10 text-sm text-[var(--muted)] shadow-[var(--shadow-soft)]">
+          Loading workspace controls...
+        </section>
+      ) : !canViewWorkspacesPage ? (
         <PageAccessNotice
           title="Workspace controls are restricted for this role"
-          description="Workspace administration is only available to platform operators and workspace managers."
+          description="Workspace administration is only available to platform operators."
           href="/"
           ctaLabel="Open dashboard"
         />
       ) : (
         <div className="mx-auto max-w-7xl space-y-6">
           <section className="rounded-[1.75rem] border border-[var(--line)] bg-[var(--surface)] p-6 shadow-[var(--shadow-soft)]">
-            <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-              <div className="max-w-3xl">
-                <div className="inline-flex items-center gap-2 rounded-full border border-[var(--line)] bg-[var(--surface-strong)] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--muted)]">
-                  <Building2 size={13} className="text-[var(--accent)]" />
-                  Workspaces
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--muted)]">
+                  Workspace Onboarding
                 </div>
-                <h1 className="mt-4 text-[1.6rem] font-semibold tracking-tight text-[var(--text)]">
-                  Workspace directory
+                <h1 className="mt-3 text-[1.7rem] font-semibold tracking-tight text-[var(--text)]">
+                  Create verified client workspaces
                 </h1>
-                <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--muted)]">
-                  Keep this page focused on workspace discovery. Detailed member access, support,
-                  and billing work now live inside split child pages.
-                </p>
               </div>
               <div className="grid gap-3 sm:grid-cols-3">
                 {[
                   { label: "Total", value: stats.total },
                   { label: "Active", value: stats.active },
-                  { label: "Locked", value: stats.locked },
+                  { label: "Suspended", value: stats.suspended },
                 ].map((card) => (
-                  <div
-                    key={card.label}
-                    className="rounded-[1.2rem] border border-[var(--line)] bg-[var(--surface-strong)] px-4 py-4"
-                  >
-                    <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">
-                      {card.label}
-                    </div>
-                    <div className="mt-2 text-xl font-semibold text-[var(--text)]">{card.value}</div>
+                  <div key={card.label} className="rounded-[1.1rem] border border-[var(--line)] bg-[var(--surface-strong)] px-4 py-3">
+                    <div className="text-[10px] uppercase tracking-[0.16em] text-[var(--muted)]">{card.label}</div>
+                    <div className="mt-1 text-xl font-semibold text-[var(--text)]">{card.value}</div>
                   </div>
                 ))}
               </div>
             </div>
           </section>
 
-          <div className="grid gap-6 xl:grid-cols-[340px_1fr]">
-            <section className="rounded-[1.5rem] border border-[var(--line)] bg-[var(--surface)] p-6 shadow-[var(--shadow-soft)]">
-              <div className="flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-[var(--line-strong)] bg-[linear-gradient(135deg,var(--accent),var(--accent-strong))] text-white shadow-[0_18px_30px_var(--accent-glow)]">
-                  <Plus size={18} />
-                </div>
-                <div>
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">
-                    New Workspace
-                  </div>
-                  <div className="text-lg font-semibold tracking-tight text-[var(--text)]">
-                    Create a workspace shell
-                  </div>
-                </div>
-              </div>
+          {error ? (
+            <section className="rounded-[1.2rem] border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+              {error}
+            </section>
+          ) : null}
 
-              <div className="mt-5 space-y-3">
-                <input
-                  className="w-full rounded-2xl border border-[var(--glass-border)] bg-[var(--glass-surface-strong)] px-4 py-3 text-sm text-[var(--text)] shadow-[inset_0_1px_0_rgba(255,255,255,0.22)] outline-none"
-                  placeholder="Workspace name"
-                  value={form.name}
-                  onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
-                />
-                <select
-                  className="w-full rounded-2xl border border-[var(--glass-border)] bg-[var(--glass-surface-strong)] px-4 py-3 text-sm text-[var(--text)] shadow-[inset_0_1px_0_rgba(255,255,255,0.22)] outline-none"
-                  value={form.planId}
-                  onChange={(event) => setForm((current) => ({ ...current, planId: event.target.value }))}
-                >
-                  {plans.map((plan) => (
-                    <option key={plan.id} value={plan.id}>
-                      {plan.name || plan.id}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  className="w-full rounded-2xl border border-[var(--glass-border)] bg-[var(--glass-surface-strong)] px-4 py-3 text-sm text-[var(--text)] shadow-[inset_0_1px_0_rgba(255,255,255,0.22)] outline-none"
-                  value={form.status}
-                  onChange={(event) => setForm((current) => ({ ...current, status: event.target.value }))}
-                >
-                  <option value="active">active</option>
-                  <option value="locked">locked</option>
-                </select>
-                {error ? (
-                  <div className="rounded-2xl border border-rose-300/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
-                    {error}
-                  </div>
-                ) : null}
-                {success ? (
-                  <div className="rounded-2xl border border-emerald-300/35 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
-                    {success}
-                  </div>
-                ) : null}
-                {isPlatformOperator ? (
-                  <button
-                    type="button"
-                    onClick={handleCreate}
-                    disabled={saving}
-                    className="w-full rounded-2xl border border-[rgba(129,140,248,0.4)] bg-[linear-gradient(135deg,var(--accent),var(--accent-strong))] px-4 py-3 text-[11px] font-black uppercase tracking-[0.2em] text-white shadow-[0_18px_30px_var(--accent-glow)] transition duration-300 hover:-translate-y-0.5 disabled:opacity-50"
-                  >
+          <div className="grid gap-6 xl:grid-cols-[430px_1fr]">
+            <section className="rounded-[1.5rem] border border-[var(--line)] bg-[var(--surface)] p-6 shadow-[var(--shadow-soft)]">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Create Workspace</div>
+              <div className="mt-5 space-y-5">
+                <div className="space-y-3">
+                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Company details</div>
+                  <input className="w-full rounded-2xl border border-[var(--glass-border)] bg-[var(--glass-surface-strong)] px-4 py-3 text-sm text-[var(--text)]" placeholder="Company name" value={form.companyName} onChange={(event) => setForm((current) => ({ ...current, companyName: event.target.value }))} />
+                  <input className="w-full rounded-2xl border border-[var(--glass-border)] bg-[var(--glass-surface-strong)] px-4 py-3 text-sm text-[var(--text)]" placeholder="Company website" value={form.companyWebsite} onChange={(event) => setForm((current) => ({ ...current, companyWebsite: event.target.value }))} />
+                  <input className="w-full rounded-2xl border border-[var(--glass-border)] bg-[var(--glass-surface-strong)] px-4 py-3 text-sm text-[var(--text)]" placeholder="Industry / category" value={form.industry} onChange={(event) => setForm((current) => ({ ...current, industry: event.target.value }))} />
+                  <input className="w-full rounded-2xl border border-[var(--glass-border)] bg-[var(--glass-surface-strong)] px-4 py-3 text-sm text-[var(--text)]" placeholder="GSTIN / tax id" value={form.gstin} onChange={(event) => setForm((current) => ({ ...current, gstin: event.target.value }))} />
+                </div>
+
+                <div className="space-y-3">
+                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Primary account owner</div>
+                  <input className="w-full rounded-2xl border border-[var(--glass-border)] bg-[var(--glass-surface-strong)] px-4 py-3 text-sm text-[var(--text)]" placeholder="Full name" value={form.ownerName} onChange={(event) => setForm((current) => ({ ...current, ownerName: event.target.value }))} />
+                  <input className="w-full rounded-2xl border border-[var(--glass-border)] bg-[var(--glass-surface-strong)] px-4 py-3 text-sm text-[var(--text)]" placeholder="Email address" value={form.ownerEmail} onChange={(event) => setForm((current) => ({ ...current, ownerEmail: event.target.value }))} />
+                  <input className="w-full rounded-2xl border border-[var(--glass-border)] bg-[var(--glass-surface-strong)] px-4 py-3 text-sm text-[var(--text)]" placeholder="Phone number" value={form.ownerPhone} onChange={(event) => setForm((current) => ({ ...current, ownerPhone: event.target.value }))} />
+                </div>
+
+                <div className="space-y-3">
+                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Plan & billing</div>
+                  <select className="w-full rounded-2xl border border-[var(--glass-border)] bg-[var(--glass-surface-strong)] px-4 py-3 text-sm text-[var(--text)]" value={form.planId} onChange={(event) => setForm((current) => ({ ...current, planId: event.target.value }))}>
+                    {plans.map((plan) => (
+                      <option key={plan.id} value={plan.id}>
+                        {plan.name || plan.id}
+                      </option>
+                    ))}
+                  </select>
+                  <select className="w-full rounded-2xl border border-[var(--glass-border)] bg-[var(--glass-surface-strong)] px-4 py-3 text-sm text-[var(--text)]" value={form.billingCycle} onChange={(event) => setForm((current) => ({ ...current, billingCycle: event.target.value }))}>
+                    <option value="monthly">Monthly</option>
+                    <option value="yearly">Yearly</option>
+                  </select>
+                  <input className="w-full rounded-2xl border border-[var(--glass-border)] bg-[var(--glass-surface-strong)] px-4 py-3 text-sm text-[var(--text)]" placeholder="Initial wallet top-up (optional)" value={form.initialWalletTopup} onChange={(event) => setForm((current) => ({ ...current, initialWalletTopup: event.target.value }))} />
+                  <button type="button" onClick={handleCreate} disabled={saving} className="w-full rounded-2xl border border-[rgba(129,140,248,0.4)] bg-[linear-gradient(135deg,var(--accent),var(--accent-strong))] px-4 py-3 text-[11px] font-black uppercase tracking-[0.2em] text-white disabled:opacity-50">
                     {saving ? "Creating..." : "Create workspace"}
                   </button>
-                ) : (
-                  <div className="rounded-2xl border border-[var(--line)] bg-[var(--surface-muted)] px-4 py-3 text-sm text-[var(--muted)]">
-                    Workspace creation is limited to platform operators.
-                  </div>
-                )}
+                </div>
               </div>
             </section>
 
             <section className="space-y-4">
               {loading ? (
-                <div className="rounded-[1.5rem] border border-dashed border-[var(--line)] bg-[var(--surface)] px-5 py-8 text-sm text-[var(--muted)]">
+                <section className="rounded-[1.5rem] border border-dashed border-[var(--line)] bg-[var(--surface)] px-5 py-8 text-sm text-[var(--muted)]">
                   Loading workspace directory...
-                </div>
-              ) : workspaces.length ? (
-                <div className="grid gap-4 md:grid-cols-2">
-                  {workspaces.map((workspace) => (
-                    <section
-                      key={workspace.id}
-                      className="rounded-[1.4rem] border border-[var(--line)] bg-[var(--surface)] p-5 shadow-sm"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <div className="text-base font-semibold tracking-tight text-[var(--text)]">
-                            {workspace.name}
-                          </div>
-                          <div className="mt-2 text-sm leading-6 text-[var(--muted)]">
-                            Plan {workspace.subscription_plan_name || workspace.plan_id || "starter"}.
-                            Subscription {workspace.subscription_status || "unknown"}.
-                          </div>
-                        </div>
-                        <div className="rounded-full border border-[var(--line)] bg-[var(--surface-strong)] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
-                          {workspace.status}
-                        </div>
-                      </div>
-
-                      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                        <div className="rounded-[1.05rem] border border-[var(--line)] bg-[var(--surface-strong)] px-4 py-3 text-sm text-[var(--text)]">
-                          Campaigns: {workspace.campaign_count || 0}
-                        </div>
-                        <div className="rounded-[1.05rem] border border-[var(--line)] bg-[var(--surface-strong)] px-4 py-3 text-sm text-[var(--text)]">
-                          Accounts: {workspace.platform_account_count || 0}
-                        </div>
-                      </div>
-
-                      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                        <Link
-                          href="/settings"
-                          onClick={() => setActiveWorkspace(workspace.id)}
-                          className="rounded-[1.05rem] border border-[var(--line)] bg-[var(--surface-strong)] px-4 py-3 text-sm text-[var(--text)] transition duration-200 hover:border-[var(--line-strong)] hover:bg-[var(--surface-muted)]"
-                        >
-                          Overview
-                        </Link>
-                        <Link
-                          href="/users-access/members"
-                          onClick={() => setActiveWorkspace(workspace.id)}
-                          className="rounded-[1.05rem] border border-[var(--line)] bg-[var(--surface-strong)] px-4 py-3 text-sm text-[var(--text)] transition duration-200 hover:border-[var(--line-strong)] hover:bg-[var(--surface-muted)]"
-                        >
-                          Members & Access
-                        </Link>
-                        {isPlatformOperator ? (
-                          <>
-                            <Link
-                              href="/support/access"
-                              onClick={() => setActiveWorkspace(workspace.id)}
-                              className="rounded-[1.05rem] border border-[var(--line)] bg-[var(--surface-strong)] px-4 py-3 text-sm text-[var(--text)] transition duration-200 hover:border-[var(--line-strong)] hover:bg-[var(--surface-muted)]"
-                            >
-                              Support
-                            </Link>
-                            <Link
-                              href={`/workspaces/${workspace.id}/billing`}
-                              onClick={() => setActiveWorkspace(workspace.id)}
-                              className="rounded-[1.05rem] border border-[var(--line)] bg-[var(--surface-strong)] px-4 py-3 text-sm text-[var(--text)] transition duration-200 hover:border-[var(--line-strong)] hover:bg-[var(--surface-muted)]"
-                            >
-                              Billing
-                            </Link>
-                          </>
-                        ) : null}
-                      </div>
-                    </section>
-                  ))}
-                </div>
+                </section>
               ) : (
-                <div className="rounded-[1.5rem] border border-dashed border-[var(--line)] bg-[var(--surface)] px-5 py-8 text-sm text-[var(--muted)]">
-                  No workspaces found yet.
-                </div>
+                workspaces.map((workspace) => (
+                  <section key={workspace.id} className="rounded-[1.4rem] border border-[var(--line)] bg-[var(--surface)] p-5 shadow-sm">
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                      <div>
+                        <div className="text-base font-semibold text-[var(--text)]">{workspace.name}</div>
+                        <div className="mt-2 text-sm text-[var(--muted)]">
+                          {workspace.industry || "Uncategorized"} • {workspace.subscription_plan_name || workspace.effective_plan_id || workspace.plan_id}
+                        </div>
+                        <div className="mt-2 text-xs text-[var(--muted)]">
+                          {workspace.company_website || "No website"} {workspace.tax_id ? `• GSTIN ${workspace.tax_id}` : ""}
+                        </div>
+                      </div>
+                      <div className="rounded-full border border-[var(--line)] bg-[var(--surface-strong)] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
+                        {workspace.status}
+                      </div>
+                    </div>
+
+                    <div className="mt-4 grid gap-3 md:grid-cols-3">
+                      <div className="rounded-[1rem] border border-[var(--line)] bg-[var(--surface-strong)] px-4 py-3 text-sm text-[var(--text)]">
+                        Billing: {workspace.subscription_status || "unknown"}
+                      </div>
+                      <div className="rounded-[1rem] border border-[var(--line)] bg-[var(--surface-strong)] px-4 py-3 text-sm text-[var(--text)]">
+                        Seats: {workspace.seat_quantity ?? 0}
+                      </div>
+                      <div className="rounded-[1rem] border border-[var(--line)] bg-[var(--surface-strong)] px-4 py-3 text-sm text-[var(--text)]">
+                        Wallet top-up: {workspace.wallet_auto_topup_enabled ? "On" : "Off"}
+                      </div>
+                    </div>
+
+                    <div className="mt-4 flex flex-wrap gap-3">
+                      <Link href={`/workspaces/${workspace.id}`} onClick={() => setActiveWorkspace(workspace.id)} className="rounded-[1rem] border border-[var(--line)] bg-[var(--surface-strong)] px-4 py-3 text-sm text-[var(--text)]">
+                        Overview
+                      </Link>
+                    </div>
+                  </section>
+                ))
               )}
             </section>
           </div>

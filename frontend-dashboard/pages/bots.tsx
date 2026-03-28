@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 
 import PageAccessNotice from "../components/access/PageAccessNotice";
+import RequirePermission from "../components/access/RequirePermission";
 import DashboardLayout from "../components/layout/DashboardLayout";
 import BotCreationModal from "../components/forms/BotCreationModal";
 import EditBotModal from "../components/forms/EditBotModal";
@@ -163,6 +164,7 @@ export default function BotsPage() {
 
         <div className="mb-6 flex items-start justify-between">
           <div className="flex gap-3 opacity-60 transition-opacity group-hover:opacity-100">
+            <RequirePermission permissionKey="delete_bots">
             {canDeleteProjectBots ? (
               <button
                 onClick={async () => {
@@ -187,6 +189,8 @@ export default function BotsPage() {
                 <Trash2 size={16} />
               </button>
             ) : null}
+            </RequirePermission>
+            <RequirePermission permissionKey="edit_bots">
             {canEditProjectBots ? (
               <button
                 onClick={() => {
@@ -198,6 +202,7 @@ export default function BotsPage() {
                 <Edit3 size={16} />
               </button>
             ) : null}
+            </RequirePermission>
             <button
               onClick={() => {
                 notify("Manual bot testing is not wired to a backend route in this build.", "info");
@@ -322,6 +327,7 @@ export default function BotsPage() {
               until they are linked back to a project.
             </p>
           </div>
+          <RequirePermission permissionKey="create_bots">
           {canCreateProjectBots ? (
             <button
               onClick={() => setIsModalOpen(true)}
@@ -331,6 +337,7 @@ export default function BotsPage() {
               <Plus size={14} /> Provision Bot
             </button>
           ) : null}
+          </RequirePermission>
         </div>
         </section>
 

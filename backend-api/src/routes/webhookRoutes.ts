@@ -11,6 +11,8 @@ const router = Router();
 
 router.get("/", verifyWebhook);
 router.post("/", verifyMetaWebhookSignature, receiveMessage);
+router.get("/global", verifyWebhook);
+router.post("/global", verifyMetaWebhookSignature, receiveMessage);
 
 router.post("/telegram/:botId", receiveTelegramMessage);
 router.get("/:platform/:botId", verifyWebhook);

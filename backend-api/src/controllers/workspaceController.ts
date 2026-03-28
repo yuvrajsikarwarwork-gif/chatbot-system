@@ -8,14 +8,21 @@ import {
   createWorkspaceService,
   deleteWorkspaceService,
   denyWorkspaceSupportRequestService,
+  getWorkspaceBillingContextService,
   getWorkspaceByIdService,
+  getWorkspaceOverviewService,
+  getWorkspaceWalletService,
+  createWorkspaceWalletAdjustmentService,
+  ingestWorkspaceKnowledgeService,
   grantWorkspaceSupportAccessService,
   lockWorkspaceService,
   listWorkspaceSupportAccessService,
   listWorkspaceSupportRequestsService,
   listWorkspaceMembersForUserService,
   removeUserWorkspaceService,
+  repairWorkspaceWhatsAppContactsService,
   revokeWorkspaceSupportAccessService,
+  searchWorkspaceKnowledgeService,
   listWorkspacesService,
   unlockWorkspaceService,
   updateWorkspaceBillingService,
@@ -78,6 +85,171 @@ export async function getWorkspaceCtrl(
     }
 
     const data = await getWorkspaceByIdService(id, userId);
+    res.json(data);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getWorkspaceOverviewCtrl(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const userId = getUserId(req);
+    const id = req.params.id;
+    if (!userId) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    if (!id) {
+      return res.status(400).json({ error: "Workspace id is required" });
+    }
+
+    const data = await getWorkspaceOverviewService(id, userId);
+    res.json(data);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getWorkspaceWalletCtrl(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const userId = getUserId(req);
+    const id = req.params.id;
+    if (!userId) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    if (!id) {
+      return res.status(400).json({ error: "Workspace id is required" });
+    }
+
+    const data = await getWorkspaceWalletService(id, userId);
+    res.json(data);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getWorkspaceBillingContextCtrl(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const userId = getUserId(req);
+    const id = req.params.id;
+    if (!userId) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    if (!id) {
+      return res.status(400).json({ error: "Workspace id is required" });
+    }
+
+    const data = await getWorkspaceBillingContextService(id, userId);
+    res.json(data);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function createWorkspaceWalletAdjustmentCtrl(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const userId = getUserId(req);
+    const id = req.params.id;
+    if (!userId) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    if (!id) {
+      return res.status(400).json({ error: "Workspace id is required" });
+    }
+
+    const data = await createWorkspaceWalletAdjustmentService(id, userId, req.body || {});
+    res.status(201).json(data);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function ingestWorkspaceKnowledgeCtrl(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const userId = getUserId(req);
+    const id = req.params.id;
+    if (!userId) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    if (!id) {
+      return res.status(400).json({ error: "Workspace id is required" });
+    }
+
+    const data = await ingestWorkspaceKnowledgeService(id, userId, req.body || {});
+    res.status(201).json(data);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function searchWorkspaceKnowledgeCtrl(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const userId = getUserId(req);
+    const id = req.params.id;
+    if (!userId) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    if (!id) {
+      return res.status(400).json({ error: "Workspace id is required" });
+    }
+
+    const limitValue =
+      req.query.limit !== undefined || req.body?.limit !== undefined
+        ? Number(req.query.limit ?? req.body?.limit)
+        : null;
+    const data = await searchWorkspaceKnowledgeService(id, userId, {
+      projectId:
+        String(req.query.projectId || req.query.project_id || req.body?.projectId || "")
+          .trim() || null,
+      queryText: String(req.query.query || req.body?.query || "").trim(),
+      embedding: Array.isArray(req.body?.embedding) ? req.body.embedding : null,
+      ...(limitValue !== null && Number.isFinite(limitValue) ? { limit: limitValue } : {}),
+    });
+    res.json(data);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function repairWorkspaceWhatsAppContactsCtrl(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const userId = getUserId(req);
+    const id = req.params.id;
+    if (!userId) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    if (!id) {
+      return res.status(400).json({ error: "Workspace id is required" });
+    }
+
+    const data = await repairWorkspaceWhatsAppContactsService(id, userId, req.body || {});
     res.json(data);
   } catch (err) {
     next(err);

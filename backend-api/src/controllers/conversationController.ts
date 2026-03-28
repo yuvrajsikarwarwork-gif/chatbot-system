@@ -173,6 +173,7 @@ export async function replyToConversation(
         type: req.body?.type,
         templateName: req.body?.templateName,
         languageCode: req.body?.languageCode,
+        templateVariableValues: req.body?.templateVariableValues,
         mediaUrl: req.body?.mediaUrl,
         buttons: req.body?.buttons,
       },
@@ -182,6 +183,12 @@ export async function replyToConversation(
 
     res.json(result);
   } catch (err) {
+    console.error("[Conversation Reply Error]", {
+      conversationId: req.params?.id || null,
+      type: req.body?.type || null,
+      templateName: req.body?.templateName || null,
+      error: (err as any)?.message || err,
+    });
     next(err);
   }
 }

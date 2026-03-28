@@ -2,15 +2,19 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Globe2, KeyRound, Pencil, Plus, Radio, Trash2, X } from "lucide-react";
 
 import PageAccessNotice from "../access/PageAccessNotice";
+import RequirePermission from "../access/RequirePermission";
 import DashboardLayout from "../layout/DashboardLayout";
 import { useVisibility } from "../../hooks/useVisibility";
 import WorkspaceStatusBanner from "../workspace/WorkspaceStatusBanner";
 import { useAuthStore } from "../../store/authStore";
+import { useBotStore } from "../../store/botStore";
 import {
   PlatformAccount,
   platformAccountService,
 } from "../../services/platformAccountService";
-import { confirmAction } from "../../store/uiStore";
+import apiClient from "../../services/apiClient";
+import { botService } from "../../services/botService";
+import { confirmAction, notify } from "../../store/uiStore";
 import { projectService, type ProjectSummary } from "../../services/projectService";
 
 const PLATFORMS = ["whatsapp", "website", "facebook", "instagram", "api", "telegram"];
@@ -203,15 +207,18 @@ export default function IntegrationsConsole() {
   const setActiveProject = useAuthStore((state) => state.setActiveProject);
   const hasWorkspacePermission = useAuthStore((state) => state.hasWorkspacePermission);
   const getProjectRole = useAuthStore((state) => state.getProjectRole);
-  const { canViewPage } = useVisibility();
+  const { canViewPage, canManageWorkspace, isPlatformOperator, isWorkspaceAdmin } = useVisibility();
+  const activeBotId = useBotStore((state) => state.activeBotId);
 
   const [accounts, setAccounts] = useState<PlatformAccount[]>([]);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
+  const [projectBots, setProjectBots] = useState<Array<{ id: string; name: string; project_id?: string | null }>>([]);
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [form, setForm] = useState(EMPTY_FORM);
   const [error, setError] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [activePlatform, setActivePlatform] = useState("whatsapp");
+  const [isMetaBusy, setIsMetaBusy] = useState(false);
 
   const activeWorkspaceId = activeWorkspace?.workspace_id || "";
   const selectedProjectRole = getProjectRole(selectedProjectId);
@@ -229,7 +236,7 @@ export default function IntegrationsConsole() {
     hasWorkspacePermission(activeWorkspaceId || undefined, "view_platform_accounts") ||
     canManageSelectedWorkspace;
   const canManageSelectedProjectIntegrations =
-    canManageSelectedWorkspace || selectedProjectRole === "project_admin";
+    isPlatformOperator || canManageWorkspace || isWorkspaceAdmin;
   const canViewIntegrationsPage =
     canViewPage("integrations") ||
     canViewSelectedWorkspaceIntegrations ||
@@ -272,6 +279,23 @@ export default function IntegrationsConsole() {
       });
   }, [activeWorkspaceId, activeProject?.id, canViewIntegrationsPage, selectedProjectId, setActiveProject]);
 
+  useEffect(() => {
+    if (!activeWorkspaceId || !selectedProjectId) {
+      setProjectBots([]);
+      return;
+    }
+
+    botService
+      .getBots({ workspaceId: activeWorkspaceId, projectId: selectedProjectId })
+      .then((rows) => {
+        setProjectBots(Array.isArray(rows) ? rows : []);
+      })
+      .catch((err) => {
+        console.error("Failed to load project bots", err);
+        setProjectBots([]);
+      });
+  }, [activeWorkspaceId, selectedProjectId]);
+
   const loadAccounts = useCallback(async (projectId: string) => {
     if (!activeWorkspaceId || !projectId) {
       setAccounts([]);
@@ -302,6 +326,19 @@ export default function IntegrationsConsole() {
     () => accounts.filter((account) => account.platform_type === activePlatform),
     [accounts, activePlatform]
   );
+  const selectedBotId =
+    (activeBotId &&
+    projectBots.some(
+      (bot) =>
+        String(bot.id || "") === String(activeBotId) &&
+        String(bot.project_id || "") === String(selectedProjectId)
+    )
+      ? activeBotId
+      : projectBots[0]?.id) || null;
+  const canUseMetaSignup =
+    canManageSelectedProjectIntegrations &&
+    ["whatsapp", "facebook", "instagram"].includes(activePlatform) &&
+    Boolean(selectedBotId);
 
   const resetForm = () => {
     setEditingId(null);
@@ -443,6 +480,93 @@ export default function IntegrationsConsole() {
     }
   };
 
+  const handleStartMetaConnect = async () => {
+    if (!selectedBotId) {
+      setError("Select a project with at least one bot before connecting Meta.");
+      return;
+    }
+
+    try {
+      setIsMetaBusy(true);
+      setError("");
+      const redirectUri =
+        typeof window !== "undefined" ? `${window.location.origin}/integrations` : undefined;
+      const response = await apiClient.post("/integrations/meta/signup-session", {
+        botId: selectedBotId,
+        platform: activePlatform,
+        redirectUri,
+      });
+      const signupUrl = String(response?.data?.signupUrl || "").trim();
+      if (!signupUrl) {
+        throw new Error("Meta signup session did not return a signup URL.");
+      }
+      window.location.href = signupUrl;
+    } catch (err: any) {
+      setError(err?.response?.data?.error || err?.message || "Failed to start Meta signup.");
+    } finally {
+      setIsMetaBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!selectedProjectId || !selectedBotId || typeof window === "undefined") {
+      return;
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("code");
+    const state = params.get("state");
+    if (!code || !state) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const completeSignup = async () => {
+      try {
+        setIsMetaBusy(true);
+        await apiClient.post("/integrations/meta/complete", {
+          code,
+          state,
+          platform: activePlatform,
+          accountId: form.accountId || undefined,
+          phoneNumberId: form.platformType === "whatsapp" ? form.accountId || undefined : undefined,
+          businessId: form.businessId || undefined,
+          metaBusinessId: form.metaBusinessId || undefined,
+          name: form.name || undefined,
+        });
+        if (!cancelled) {
+          notify("Meta integration connected.", "success");
+          await loadAccounts(selectedProjectId);
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+      } catch (err: any) {
+        if (!cancelled) {
+          setError(err?.response?.data?.error || "Failed to complete Meta signup.");
+        }
+      } finally {
+        if (!cancelled) {
+          setIsMetaBusy(false);
+        }
+      }
+    };
+
+    completeSignup().catch(console.error);
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activePlatform,
+    form.accountId,
+    form.businessId,
+    form.metaBusinessId,
+    form.name,
+    form.platformType,
+    loadAccounts,
+    selectedBotId,
+    selectedProjectId,
+  ]);
+
   const selectedProject =
     projects.find((project) => project.id === selectedProjectId) || null;
   const platformFieldCopy = getPlatformFieldCopy(form.platformType, editingId);
@@ -573,6 +697,11 @@ export default function IntegrationsConsole() {
                       <div className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-600">
                         Platform: <strong className="uppercase">{form.platformType}</strong>
                       </div>
+                      {["whatsapp", "facebook", "instagram"].includes(form.platformType) ? (
+                        <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-3 text-xs leading-5 text-slate-700">
+                          Meta connect can bootstrap this integration from OAuth instead of manual token copy-paste.
+                        </div>
+                      ) : null}
                       <input
                         className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-teal-400"
                         placeholder="Integration name"
@@ -675,14 +804,30 @@ export default function IntegrationsConsole() {
                     </div>
                   ) : null}
                   {canManageSelectedProjectIntegrations ? (
-                    <button
-                      onClick={handleSave}
-                      className="flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-[11px] font-black uppercase tracking-[0.2em] text-white transition hover:bg-slate-800"
-                    >
-                      {editingId ? <Pencil size={14} /> : <Plus size={14} />}
-                      {editingId ? "Save Integration" : "Add Integration"}
-                    </button>
+                    ["whatsapp", "facebook", "instagram"].includes(form.platformType) ? (
+                      <RequirePermission roles={["workspace_admin"]} platformRoles={["super_admin", "developer"]}>
+                        <button
+                          onClick={handleStartMetaConnect}
+                          disabled={!canUseMetaSignup || isMetaBusy}
+                          className="flex w-full items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-indigo-600 px-4 py-3 text-[11px] font-black uppercase tracking-[0.2em] text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          <Radio size={14} />
+                          {isMetaBusy ? "Connecting Meta..." : "Connect with Meta"}
+                        </button>
+                      </RequirePermission>
+                    ) : null
                   ) : null}
+                  <RequirePermission roles={["workspace_admin"]} platformRoles={["super_admin", "developer"]}>
+                    {canManageSelectedProjectIntegrations ? (
+                      <button
+                        onClick={handleSave}
+                        className="flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-[11px] font-black uppercase tracking-[0.2em] text-white transition hover:bg-slate-800"
+                      >
+                        {editingId ? <Pencil size={14} /> : <Plus size={14} />}
+                        {editingId ? "Save Integration" : "Add Integration"}
+                      </button>
+                    ) : null}
+                  </RequirePermission>
                   {editingId && canManageSelectedProjectIntegrations ? (
                     <button
                       onClick={resetForm}
@@ -750,6 +895,7 @@ export default function IntegrationsConsole() {
                           <div className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-[10px] font-black uppercase tracking-[0.2em] text-slate-600">
                             {account.status}
                           </div>
+                          <RequirePermission roles={["workspace_admin"]} platformRoles={["super_admin", "developer"]}>
                           {canManageSelectedProjectIntegrations ? (
                             <button
                               type="button"
@@ -781,6 +927,8 @@ export default function IntegrationsConsole() {
                               {account.status === "active" ? "Disconnect" : "Reconnect"}
                             </button>
                           ) : null}
+                          </RequirePermission>
+                          <RequirePermission roles={["workspace_admin"]} platformRoles={["super_admin", "developer"]}>
                           {canManageSelectedProjectIntegrations ? (
                             <button
                               onClick={() => startEdit(account)}
@@ -789,6 +937,8 @@ export default function IntegrationsConsole() {
                               Edit
                             </button>
                           ) : null}
+                          </RequirePermission>
+                          <RequirePermission roles={["workspace_admin"]} platformRoles={["super_admin", "developer"]}>
                           {canManageSelectedProjectIntegrations ? (
                             <button
                               onClick={() => handleDelete(account.id).catch(console.error)}
@@ -797,6 +947,7 @@ export default function IntegrationsConsole() {
                               Delete
                             </button>
                           ) : null}
+                          </RequirePermission>
                         </div>
                       </div>
                     </div>

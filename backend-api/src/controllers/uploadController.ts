@@ -8,6 +8,7 @@ import { env } from "../config/env";
 import { query } from "../config/db";
 import { AuthRequest } from "../middleware/authMiddleware";
 import { decryptSecret } from "../utils/encryption";
+import { buildPublicFileUrl } from "../utils/publicUrl";
 import { upsertContactWithIdentity } from "../services/contactIdentityService";
 import {
   findAccessibleTemplate,
@@ -236,7 +237,7 @@ export const uploadMetaTemplateSample = async (req: AuthRequest, res: Response) 
       accessToken: connection.accessToken,
       filePath: file.path,
     });
-    const fileUrl = `${req.protocol}://${req.get("host")}/uploads/${file.filename}`;
+    const fileUrl = buildPublicFileUrl(file.filename);
 
     return res.status(200).json({
       url: fileUrl,

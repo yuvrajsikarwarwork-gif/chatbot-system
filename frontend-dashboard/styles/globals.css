@@ -149,3 +149,9 @@ a {
   background: linear-gradient(180deg, rgba(99, 102, 241, 0.44), rgba(59, 130, 246, 0.22));
   background-clip: padding-box;
 }
+
+.support-mode-banner {
+  background:
+    linear-gradient(135deg, rgba(127, 29, 29, 0.96), rgba(153, 27, 27, 0.92)),
+    radial-gradient(circle at 15% 50%, rgba(254, 202, 202, 0.16), transparent 28%);
+}

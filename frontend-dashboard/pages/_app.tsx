@@ -1,6 +1,7 @@
 import type { AppProps } from 'next/app';
 import { useEffect } from 'react';
 import { useRouter } from 'next/router';
+import SupportModeBanner from '../components/layout/SupportModeBanner';
 import UiOverlay from '../components/ui/UiOverlay';
 import { permissionService } from '../services/permissionService';
 import { sessionService } from '../services/sessionService';
@@ -10,11 +11,22 @@ import '../styles/globals.css';
 export default function App({ Component, pageProps }: AppProps) {
   const router = useRouter();
   const setPermissionSnapshot = useAuthStore((state) => state.setPermissionSnapshot);
+  const hasHydrated = useAuthStore((state) => state.hasHydrated);
   const user = useAuthStore((state) => state.user);
   const memberships = useAuthStore((state) => state.memberships);
   const activeWorkspace = useAuthStore((state) => state.activeWorkspace);
   const activeProject = useAuthStore((state) => state.activeProject);
   const resolvedAccess = useAuthStore((state) => state.resolvedAccess);
+  const supportModeActive =
+    Boolean(resolvedAccess?.support_access) ||
+    Boolean(activeWorkspace?.permissions_json?.support_mode);
+  const supportModeBlockedRoutes = [
+    "/workspaces",
+    "/plans",
+    "/logs",
+    "/system-settings",
+    "/permissions",
+  ];
 
   const getHomeRoute = () => {
     const currentUser = useAuthStore.getState().user;
@@ -24,6 +36,10 @@ export default function App({ Component, pageProps }: AppProps) {
   };
 
   useEffect(() => {
+    if (!hasHydrated) {
+      return;
+    }
+
     const token = sessionService.getToken();
     const publicPages = ['/login', '/logout', '/register', '/accept-invite', '/forgot-password', '/reset-password'];
     
@@ -37,9 +53,28 @@ export default function App({ Component, pageProps }: AppProps) {
     if (token && publicPages.includes(router.pathname) && router.pathname !== "/logout") {
       router.push(getHomeRoute());
     }
-  }, [router, router.pathname]);
+  }, [hasHydrated, router, router.pathname]);
 
   useEffect(() => {
+    if (!hasHydrated || !supportModeActive) {
+      return;
+    }
+
+    if (!supportModeBlockedRoutes.includes(router.pathname)) {
+      return;
+    }
+
+    const fallbackRoute = activeWorkspace?.workspace_id
+      ? `/workspaces/${activeWorkspace.workspace_id}`
+      : "/";
+    router.replace(fallbackRoute).catch(() => undefined);
+  }, [activeWorkspace?.workspace_id, hasHydrated, router, router.pathname, supportModeActive]);
+
+  useEffect(() => {
+    if (!hasHydrated) {
+      return;
+    }
+
     const token = sessionService.getToken();
     const publicPages = ['/login', '/logout', '/register', '/accept-invite', '/forgot-password', '/reset-password'];
     if (!token || publicPages.includes(router.pathname)) {
@@ -92,6 +127,7 @@ export default function App({ Component, pageProps }: AppProps) {
   }, [
     activeProject?.id,
     activeWorkspace?.workspace_id,
+    hasHydrated,
     memberships,
     resolvedAccess,
     router,
@@ -100,9 +136,16 @@ export default function App({ Component, pageProps }: AppProps) {
     user,
   ]);
 
+  if (!hasHydrated) {
+    return null;
+  }
+
   return (
     <>
-      <Component {...pageProps} />
+      <SupportModeBanner />
+      <div className={supportModeActive ? "pt-16" : ""}>
+        <Component {...pageProps} />
+      </div>
       <UiOverlay />
     </>
   );

@@ -77,7 +77,7 @@ export default function SettingsPage() {
     activeProject,
     hasWorkspacePermission,
   } = useAuthStore();
-  const { canViewPage } = useVisibility();
+  const { canViewPage, isPlatformOperator } = useVisibility();
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [campaigns, setCampaigns] = useState<CampaignSummary[]>([]);
@@ -107,11 +107,21 @@ export default function SettingsPage() {
   }, [canViewSettingsPage]);
 
   const activeWorkspace = useMemo(
-    () =>
-      workspaces.find((workspace) => workspace.id === activeWorkspaceMembership?.workspace_id) ||
-      workspaces[0] ||
-      null,
-    [activeWorkspaceMembership?.workspace_id, workspaces]
+    () => {
+      const selected =
+        workspaces.find((workspace) => workspace.id === activeWorkspaceMembership?.workspace_id) || null;
+
+      if (selected) {
+        return selected;
+      }
+
+      if (isPlatformOperator) {
+        return null;
+      }
+
+      return workspaces[0] || null;
+    },
+    [activeWorkspaceMembership?.workspace_id, isPlatformOperator, workspaces]
   );
 
   const activePlan = useMemo(
@@ -121,20 +131,25 @@ export default function SettingsPage() {
       null,
     [activeWorkspace?.plan_id, plans]
   );
+  const activeWorkspaceId = activeWorkspace?.id || null;
 
+  const canOpenSettingsShell = Boolean(user);
   const canManageSettings = activeWorkspace
-    ? hasWorkspacePermission(activeWorkspace.id, "manage_workspace")
+    ? hasWorkspacePermission(activeWorkspaceId, "manage_workspace")
     : false;
+  const isPlatformWithoutWorkspace = isPlatformOperator && !activeWorkspaceId;
+  const canViewWorkspaceSettings =
+    isPlatformOperator || canViewSettingsPage || canManageSettings;
 
   const settingsTabs = useMemo(
     () => [
-      { label: "Workspace Settings", href: "/settings" },
-      ...(activeProject?.id
+      ...(!isPlatformWithoutWorkspace ? [{ label: "Workspace Settings", href: "/settings" }] : []),
+      ...(!isPlatformWithoutWorkspace && activeProject?.id
         ? [{ label: "Project Settings", href: `/projects/${activeProject.id}/settings?from=settings` }]
         : []),
-      ...(activeWorkspace?.id ? [{ label: "Billing", href: `/workspaces/${activeWorkspace.id}/billing` }] : []),
+      ...(activeWorkspaceId ? [{ label: "Billing", href: `/workspaces/${activeWorkspaceId}/billing` }] : []),
     ],
-    [activeProject?.id, activeWorkspace?.id]
+    [activeProject?.id, activeWorkspaceId, isPlatformWithoutWorkspace]
   );
 
   useEffect(() => {
@@ -147,7 +162,7 @@ export default function SettingsPage() {
       setLoading(false);
       return;
     }
-    if (!activeWorkspace?.id) {
+    if (!activeWorkspaceId) {
       setForm(DEFAULT_SETTINGS);
       setMembers([]);
       setCampaigns([]);
@@ -163,8 +178,8 @@ export default function SettingsPage() {
     setFieldErrors({});
 
     Promise.all([
-      conversationSettingsService.get(activeWorkspace.id),
-      canManageSettings ? workspaceMembershipService.list(activeWorkspace.id) : Promise.resolve([]),
+      conversationSettingsService.get(activeWorkspaceId),
+      canManageSettings ? workspaceMembershipService.list(activeWorkspaceId) : Promise.resolve([]),
       campaignService.list(),
     ])
       .then(([settingsData, memberData, campaignData]) => {
@@ -190,7 +205,7 @@ export default function SettingsPage() {
         setCampaigns(
           campaignData.filter(
             (campaign) =>
-              normalizeCampaignWorkspaceId(campaign) === activeWorkspace.id &&
+              normalizeCampaignWorkspaceId(campaign) === activeWorkspaceId &&
               (!activeProject?.id ||
                 (campaign.project_id || campaign.projectId || null) === activeProject.id)
           )
@@ -211,7 +226,7 @@ export default function SettingsPage() {
     return () => {
       cancelled = true;
     };
-  }, [activeWorkspace?.id, activeProject?.id, canManageSettings, canViewSettingsPage]);
+  }, [activeWorkspaceId, activeProject?.id, canManageSettings, canViewSettingsPage]);
 
   useEffect(() => {
     if (!form.default_campaign_id) {
@@ -315,7 +330,7 @@ export default function SettingsPage() {
   };
 
   const handleSave = async () => {
-    if (!activeWorkspace?.id) {
+    if (!activeWorkspaceId) {
       return;
     }
 
@@ -328,7 +343,7 @@ export default function SettingsPage() {
       setSaving(true);
       setError("");
       setFieldErrors({});
-      const saved = await conversationSettingsService.update(activeWorkspace.id, {
+      const saved = await conversationSettingsService.update(activeWorkspaceId, {
         autoAssign: form.auto_assign,
         defaultAgent: form.default_agent,
         allowManualReply: form.allow_manual_reply,
@@ -372,51 +387,117 @@ export default function SettingsPage() {
 
   return (
     <DashboardLayout>
-      {!canViewSettingsPage ? (
+      {!canOpenSettingsShell ? (
         <PageAccessNotice
-          title="Workspace settings are restricted for this role"
-          description="Workspace settings are only available to workspace admins inside the active workspace."
-          href="/"
-          ctaLabel="Open dashboard"
+          title="Settings are restricted for this role"
+          description="Sign in with a valid account to access workspace and account settings."
+          href="/login"
+          ctaLabel="Open login"
         />
       ) : (
       <div className="mx-auto max-w-6xl space-y-6">
-        <WorkspaceStatusBanner workspace={activeWorkspace} />
+        {activeWorkspace ? <WorkspaceStatusBanner workspace={activeWorkspace} /> : null}
 
         <section className="rounded-[1.25rem] border border-[var(--line)] bg-[var(--surface)] p-5 shadow-[var(--shadow-soft)]">
           <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">
             Settings
           </div>
           <h1 className="mt-2 text-[1.35rem] font-semibold tracking-tight text-[var(--text)]">
-            Workspace and project controls
+            {isPlatformWithoutWorkspace ? "Platform account settings" : "Account and workspace settings"}
           </h1>
-          <SectionTabs items={settingsTabs} currentPath="/settings" className="mt-4" />
+          {canViewWorkspaceSettings && settingsTabs.length > 0 ? (
+            <SectionTabs items={settingsTabs} currentPath="/settings" className="mt-4" />
+          ) : null}
         </section>
 
-        <div className="grid gap-4 md:grid-cols-3">
-          <div className="rounded-[1.25rem] border border-[var(--line)] bg-[var(--surface)] px-5 py-4">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
-              User
+        {isPlatformWithoutWorkspace ? (
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="rounded-[1.25rem] border border-[var(--line)] bg-[var(--surface)] px-5 py-4">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
+                User
+              </div>
+              <div className="mt-2 text-sm font-semibold text-[var(--text)]">{user?.name || "Unnamed User"}</div>
+              <div className="mt-1 text-xs text-[var(--muted)]">{user?.role || "user"}</div>
             </div>
-            <div className="mt-2 text-sm font-semibold text-[var(--text)]">{user?.name || "Unnamed User"}</div>
-            <div className="mt-1 text-xs text-[var(--muted)]">{user?.role || "user"}</div>
-          </div>
-          <div className="rounded-[1.25rem] border border-[var(--line)] bg-[var(--surface)] px-5 py-4">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
-              Active Workspace
+            <div className="rounded-[1.25rem] border border-[var(--line)] bg-[var(--surface)] px-5 py-4">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
+                Scope
+              </div>
+              <div className="mt-2 text-sm font-semibold text-[var(--text)]">Platform only</div>
+              <div className="mt-1 text-xs text-[var(--muted)]">
+                No workspace is attached to this account session.
+              </div>
             </div>
-            <div className="mt-2 text-sm font-semibold text-[var(--text)]">{activeWorkspace?.name || "Not linked"}</div>
-            <div className="mt-1 text-xs text-[var(--muted)]">{activeWorkspace?.status || "n/a"}</div>
           </div>
-          <div className="rounded-[1.25rem] border border-[var(--line)] bg-[var(--surface)] px-5 py-4">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
-              Active Plan
+        ) : (
+          <div className="grid gap-4 md:grid-cols-3">
+            <div className="rounded-[1.25rem] border border-[var(--line)] bg-[var(--surface)] px-5 py-4">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
+                User
+              </div>
+              <div className="mt-2 text-sm font-semibold text-[var(--text)]">{user?.name || "Unnamed User"}</div>
+              <div className="mt-1 text-xs text-[var(--muted)]">{user?.role || "user"}</div>
             </div>
-            <div className="mt-2 text-sm font-semibold text-[var(--text)]">{activePlan?.name || "Starter"}</div>
-            <div className="mt-1 text-xs text-[var(--muted)]">INR {activePlan?.monthly_price_inr || 0}/mo</div>
+            <div className="rounded-[1.25rem] border border-[var(--line)] bg-[var(--surface)] px-5 py-4">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
+                Active Workspace
+              </div>
+              <div className="mt-2 text-sm font-semibold text-[var(--text)]">{activeWorkspace?.name || "Not linked"}</div>
+              <div className="mt-1 text-xs text-[var(--muted)]">{activeWorkspace?.status || "n/a"}</div>
+            </div>
+            <div className="rounded-[1.25rem] border border-[var(--line)] bg-[var(--surface)] px-5 py-4">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
+                Active Plan
+              </div>
+              <div className="mt-2 text-sm font-semibold text-[var(--text)]">{activePlan?.name || "Starter"}</div>
+              <div className="mt-1 text-xs text-[var(--muted)]">INR {activePlan?.monthly_price_inr || 0}/mo</div>
+            </div>
           </div>
-        </div>
+        )}
 
+        {!canViewWorkspaceSettings ? (
+          <section className="rounded-[1.5rem] border border-dashed border-[var(--line)] bg-[var(--surface)] p-8 text-sm text-[var(--muted)]">
+            {!activeWorkspaceId
+              ? "Basic account details are available above. Select a workspace to open workspace settings."
+              : "Basic account details are available above. Workspace settings are only editable for workspace admins and platform operators."}
+          </section>
+        ) : null}
+
+        {isPlatformWithoutWorkspace ? (
+          <section className="rounded-[1.5rem] border border-[var(--line)] bg-[var(--surface)] p-6 shadow-sm">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">
+              Platform Account
+            </div>
+            <h2 className="mt-3 text-[1.35rem] font-semibold tracking-tight text-[var(--text)]">
+              Platform account controls
+            </h2>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--muted)]">
+              This page stays platform-only for super admin and developer sessions. Workspace internals, plans, and routing controls are hidden until you explicitly enter a workspace management route.
+            </p>
+            <div className="mt-5 grid gap-3 sm:grid-cols-3">
+              <a
+                href="/workspaces"
+                className="rounded-2xl border border-[var(--line)] bg-[var(--surface-strong)] px-4 py-3 text-sm text-[var(--text)] transition hover:border-[var(--line-strong)]"
+              >
+                Manage Workspaces
+              </a>
+              <a
+                href="/users-access/platform-users"
+                className="rounded-2xl border border-[var(--line)] bg-[var(--surface-strong)] px-4 py-3 text-sm text-[var(--text)] transition hover:border-[var(--line-strong)]"
+              >
+                Manage Platform Users
+              </a>
+              <a
+                href="/users-access/roles"
+                className="rounded-2xl border border-[var(--line)] bg-[var(--surface-strong)] px-4 py-3 text-sm text-[var(--text)] transition hover:border-[var(--line-strong)]"
+              >
+                Manage Permissions
+              </a>
+            </div>
+          </section>
+        ) : null}
+
+        {!isPlatformWithoutWorkspace ? (
         <section className="rounded-[1.5rem] border border-[var(--line)] bg-[var(--surface)] p-6 shadow-sm">
           <div className="flex items-start justify-between gap-4">
             <div>
@@ -425,12 +506,18 @@ export default function SettingsPage() {
                 Workspace conversation settings
               </div>
             </div>
-            <div className="rounded-full border border-[var(--line)] bg-[var(--surface-strong)] px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">
-              {canManageSettings ? "Editable" : "Read only"}
-            </div>
+            {canViewWorkspaceSettings ? (
+              <div className="rounded-full border border-[var(--line)] bg-[var(--surface-strong)] px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">
+                {canManageSettings ? "Editable" : "Read only"}
+              </div>
+            ) : null}
           </div>
 
-          {loading ? (
+          {!canViewWorkspaceSettings ? (
+            <div className="mt-6 rounded-[1.25rem] border border-dashed border-[var(--line)] bg-[var(--surface-strong)] p-8 text-sm text-[var(--muted)]">
+              Workspace conversation controls are not available for the current account scope.
+            </div>
+          ) : loading ? (
             <div className="mt-6 rounded-[1.25rem] border border-dashed border-[var(--line)] bg-[var(--surface-strong)] p-8 text-sm text-[var(--muted)]">
               Loading conversation settings...
             </div>
@@ -726,6 +813,7 @@ export default function SettingsPage() {
             </div>
           )}
         </section>
+        ) : null}
 
       </div>
       )}

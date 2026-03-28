@@ -4,6 +4,8 @@ import { Router } from "express";
 
 import {
   acceptInvite,
+  createSupportWorkspaceSession,
+  endSupportWorkspaceSession,
   login,
   logout,
   register,
@@ -28,5 +30,7 @@ router.post("/reset-password", resetPassword);
 
 router.get("/me", authMiddleware, me);
 router.post("/logout", authMiddleware, logout);
+router.post("/support-session", authMiddleware, createSupportWorkspaceSession);
+router.delete("/support-session", authMiddleware, endSupportWorkspaceSession);
 
 export default router;

@@ -2,6 +2,7 @@ import { Router } from "express";
 
 import {
   createPlatformUserCtrl,
+  deletePlatformUserCtrl,
   inviteTeammate,
   listPlatformUsersCtrl,
   updatePlatformUserCtrl,
@@ -18,5 +19,6 @@ router.post("/invite", inviteTeammate);
 router.get("/", listPlatformUsersCtrl);
 router.post("/", createPlatformUserCtrl);
 router.put("/:id", updatePlatformUserCtrl);
+router.delete("/:id", deletePlatformUserCtrl);
 
 export default router;

@@ -2,6 +2,7 @@ import bcrypt from "bcryptjs";
 
 import {
   createUser,
+  deleteUserById,
   findUserByEmail,
   listUsers,
   findUserById,
@@ -112,4 +113,32 @@ export async function updatePlatformUserService(
   });
 
   return updated;
+}
+
+export async function deletePlatformUserService(actorUserId: string, userId: string) {
+  await assertPlatformRoles(actorUserId, ["super_admin", "developer"]);
+
+  if (actorUserId === userId) {
+    throw { status: 400, message: "You cannot delete your own platform account" };
+  }
+
+  const existing = await findUserById(userId);
+  if (!existing) {
+    throw { status: 404, message: "User not found" };
+  }
+
+  const deleted = await deleteUserById(userId);
+  if (!deleted) {
+    throw { status: 404, message: "User not found" };
+  }
+
+  await logAuditSafe({
+    userId: actorUserId,
+    action: "delete",
+    entity: "platform_user",
+    entityId: userId,
+    oldData: existing as Record<string, unknown>,
+  });
+
+  return deleted;
 }

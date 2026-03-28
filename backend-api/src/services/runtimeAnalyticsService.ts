@@ -121,6 +121,7 @@ export async function getWorkspaceAnalyticsOverview(
 ) {
   const analyticsEventsHasProjectId = await hasColumn("analytics_events", "project_id");
   const hasVisibleProjectScope = Array.isArray(visibleProjectIds);
+  const needsProjectParam = Boolean(projectId) || (hasVisibleProjectScope && visibleProjectIds.length > 0);
   const eventProjectExpression = analyticsEventsHasProjectId
     ? "ae.project_id"
     : "c.project_id";
@@ -140,7 +141,7 @@ export async function getWorkspaceAnalyticsOverview(
       : "";
   const params = projectId
     ? [workspaceId, projectId]
-    : hasVisibleProjectScope
+    : needsProjectParam
       ? [workspaceId, visibleProjectIds]
       : [workspaceId];
 
@@ -208,9 +209,10 @@ export async function getWorkspaceAnalyticsEvents(
 ) {
   const analyticsEventsHasProjectId = await hasColumn("analytics_events", "project_id");
   const hasVisibleProjectScope = Array.isArray(visibleProjectIds);
+  const needsProjectParam = Boolean(projectId) || (hasVisibleProjectScope && visibleProjectIds.length > 0);
   const params = projectId
     ? [workspaceId, projectId]
-    : hasVisibleProjectScope
+    : needsProjectParam
       ? [workspaceId, visibleProjectIds]
       : [workspaceId];
   const eventProjectExpression = analyticsEventsHasProjectId

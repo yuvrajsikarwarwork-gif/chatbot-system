@@ -14,6 +14,20 @@ export async function findActiveSupportAccess(workspaceId: string, userId: strin
   return res.rows[0] || null;
 }
 
+export async function findLatestActiveSupportAccessByUser(userId: string) {
+  const res = await query(
+    `SELECT *
+     FROM support_access
+     WHERE user_id = $1
+       AND expires_at > NOW()
+     ORDER BY updated_at DESC, expires_at DESC
+     LIMIT 1`,
+    [userId]
+  );
+
+  return res.rows[0] || null;
+}
+
 export async function listSupportAccessByWorkspace(workspaceId: string) {
   const res = await query(
     `SELECT sa.*, u.name AS user_name, u.email AS user_email,
@@ -59,6 +73,24 @@ export async function deleteSupportAccess(workspaceId: string, userId: string) {
        AND user_id = $2
      RETURNING *`,
     [workspaceId, userId]
+  );
+
+  return res.rows[0] || null;
+}
+
+export async function deleteLatestActiveSupportAccessByUser(userId: string) {
+  const res = await query(
+    `DELETE FROM support_access
+     WHERE id = (
+       SELECT id
+       FROM support_access
+       WHERE user_id = $1
+         AND expires_at > NOW()
+       ORDER BY updated_at DESC, expires_at DESC
+       LIMIT 1
+     )
+     RETURNING *`,
+    [userId]
   );
 
   return res.rows[0] || null;

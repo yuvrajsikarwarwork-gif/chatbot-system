@@ -20,6 +20,7 @@ import { createWorkspaceInviteService } from "./inviteService";
 import { recordAnalyticsEvent } from "./runtimeAnalyticsService";
 import { logAuditSafe } from "./auditLogService";
 import { assertUserQuota } from "./businessValidationService";
+import { recordWorkspaceUsage, syncWorkspaceSeatQuantity } from "./billingService";
 
 export const WORKSPACE_ROLES = [
   "workspace_admin",
@@ -416,29 +417,28 @@ export async function assertWorkspaceMembership(userId: string, workspaceId?: st
     return null;
   }
 
-  const directMembership = await resolveWorkspaceMembership(userId, workspaceId);
-  if (directMembership) {
-    return directMembership;
-  }
-
   if (await isPlatformInternalOperator(userId)) {
     const supportAccess = await findActiveSupportAccess(workspaceId, userId);
-    if (!supportAccess) {
-      throw {
-        status: 403,
-        message: "Workspace access requires active support access for platform operators",
-      };
-    }
-
+    const workspace = await findWorkspaceById(workspaceId, userId);
     return {
       workspace_id: workspaceId,
+      workspace_name: workspace?.name || workspaceId,
       user_id: userId,
       role: "workspace_admin",
       status: "active",
-      permissions_json: {
-        support_mode: true,
-      },
+      permissions_json: supportAccess
+        ? {
+            support_mode: true,
+            support_access_id: supportAccess.id,
+            support_expires_at: supportAccess.expires_at,
+          }
+        : {},
     };
+  }
+
+  const directMembership = await resolveWorkspaceMembership(userId, workspaceId);
+  if (directMembership) {
+    return directMembership;
   }
 
   const workspace = await findWorkspaceById(workspaceId, userId);
@@ -462,6 +462,28 @@ export async function assertWorkspacePermission(
     return null;
   }
 
+  if (await isPlatformInternalOperator(userId)) {
+    const supportAccess = await findActiveSupportAccess(workspaceId, userId);
+    const workspace = await findWorkspaceById(workspaceId, userId);
+    return {
+      workspace_id: workspaceId,
+      workspace_name: workspace?.name || workspaceId,
+      user_id: userId,
+      role: "workspace_admin",
+      status: "active",
+      permissions_json: {
+        [permission]: true,
+        ...(supportAccess
+          ? {
+              support_mode: true,
+              support_access_id: supportAccess.id,
+              support_expires_at: supportAccess.expires_at,
+            }
+          : {}),
+      },
+    };
+  }
+
   const directMembership = await resolveWorkspaceMembership(userId, workspaceId);
   if (directMembership) {
     const permissionMap = await resolveWorkspacePermissionMap(
@@ -477,28 +499,6 @@ export async function assertWorkspacePermission(
 
     return directMembership;
   }
-
-  if (await isPlatformInternalOperator(userId)) {
-    const supportAccess = await findActiveSupportAccess(workspaceId, userId);
-    if (!supportAccess) {
-      throw {
-        status: 403,
-        message: "Workspace permission checks require active support access for platform operators",
-      };
-    }
-
-    return {
-      workspace_id: workspaceId,
-      user_id: userId,
-      role: "workspace_admin",
-      status: "active",
-      permissions_json: {
-        [permission]: true,
-        support_mode: true,
-      },
-    };
-  }
-
   return null;
 }
 
@@ -626,8 +626,8 @@ export async function assignWorkspaceMemberService(
       email.split("@")[0]?.replace(/[._-]+/g, " ").trim() || "Workspace User";
 
     const createdUserRes = await query(
-      `INSERT INTO users (id, email, password_hash, name, role)
-       VALUES (gen_random_uuid(), $1, $2, $3, 'user')
+      `INSERT INTO users (id, email, password_hash, name, role, phone_number)
+       VALUES (gen_random_uuid(), $1, $2, $3, 'user', NULL)
        RETURNING id`,
       [email, passwordHash, derivedName]
     );
@@ -741,6 +741,18 @@ export async function assignWorkspaceMemberService(
         });
       })()
     : null;
+
+  await syncWorkspaceSeatQuantity(workspaceId);
+  await recordWorkspaceUsage({
+    workspaceId,
+    metricKey: "seat_changes",
+    metadata: {
+      action: existingMembership ? "membership_updated" : "membership_added",
+      targetUserId,
+      role: nextRole,
+      status: membershipStatus,
+    },
+  });
 
   return provisionedCredentials
     ? {

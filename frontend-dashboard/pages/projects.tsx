@@ -3,6 +3,7 @@ import { Layers3, Plus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import PageAccessNotice from "../components/access/PageAccessNotice";
+import RequirePermission from "../components/access/RequirePermission";
 import DashboardLayout from "../components/layout/DashboardLayout";
 import WorkspaceStatusBanner from "../components/workspace/WorkspaceStatusBanner";
 import { useVisibility } from "../hooks/useVisibility";
@@ -271,20 +272,25 @@ export default function ProjectsPage() {
                     {success}
                   </div>
                 ) : null}
-                {canCreateProjects ? (
-                  <button
-                    type="button"
-                    onClick={handleCreate}
-                    disabled={saving || !activeWorkspaceId}
-                    className="w-full rounded-2xl border border-[rgba(129,140,248,0.4)] bg-[linear-gradient(135deg,var(--accent),var(--accent-strong))] px-4 py-3 text-[11px] font-black uppercase tracking-[0.2em] text-white shadow-[0_18px_30px_var(--accent-glow)] transition duration-300 hover:-translate-y-0.5 disabled:opacity-50"
-                  >
-                    {saving ? "Creating..." : "Create project"}
-                  </button>
-                ) : (
-                  <div className="rounded-2xl border border-[var(--line)] bg-[var(--surface-muted)] px-4 py-3 text-sm text-[var(--muted)]">
-                    Project creation is permission-controlled for this workspace.
-                  </div>
-                )}
+                <RequirePermission
+                  permissionKey="create_projects"
+                  fallback={
+                    <div className="rounded-2xl border border-[var(--line)] bg-[var(--surface-muted)] px-4 py-3 text-sm text-[var(--muted)]">
+                      Project creation is permission-controlled for this workspace.
+                    </div>
+                  }
+                >
+                  {canCreateProjects ? (
+                    <button
+                      type="button"
+                      onClick={handleCreate}
+                      disabled={saving || !activeWorkspaceId}
+                      className="w-full rounded-2xl border border-[rgba(129,140,248,0.4)] bg-[linear-gradient(135deg,var(--accent),var(--accent-strong))] px-4 py-3 text-[11px] font-black uppercase tracking-[0.2em] text-white shadow-[0_18px_30px_var(--accent-glow)] transition duration-300 hover:-translate-y-0.5 disabled:opacity-50"
+                    >
+                      {saving ? "Creating..." : "Create project"}
+                    </button>
+                  ) : null}
+                </RequirePermission>
               </div>
             </section>
 

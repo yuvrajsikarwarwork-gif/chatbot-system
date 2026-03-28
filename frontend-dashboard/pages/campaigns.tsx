@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { ArrowRight, Copy, Edit3, Layers3, Pause, Play, Plus, Rocket, Trash2, Workflow } from "lucide-react";
 
 import PageAccessNotice from "../components/access/PageAccessNotice";
+import RequirePermission from "../components/access/RequirePermission";
 import DashboardLayout from "../components/layout/DashboardLayout";
 import { useVisibility } from "../hooks/useVisibility";
 import { campaignService, CampaignSummary } from "../services/campaignService";
@@ -134,6 +135,7 @@ export default function CampaignsPage() {
               <span>{campaigns.length} campaigns in the active project.</span>
             </div>
 
+            <RequirePermission permissionKey="can_create_campaign">
             {canCreateProjectCampaign ? (
               <Link
                 href="/campaigns/new"
@@ -144,6 +146,7 @@ export default function CampaignsPage() {
                 Create Campaign
               </Link>
             ) : null}
+            </RequirePermission>
           </div>
         </section>
 
@@ -212,6 +215,7 @@ export default function CampaignsPage() {
                     Open Campaign
                     <ArrowRight size={13} />
                   </Link>
+                  <RequirePermission permissionKey="edit_campaign">
                   {canEditProjectCampaign ? (
                     <Link
                       href={`/campaigns/${campaign.id}`}
@@ -221,6 +225,8 @@ export default function CampaignsPage() {
                       Edit
                     </Link>
                   ) : null}
+                  </RequirePermission>
+                  <RequirePermission permissionKey="can_create_campaign">
                   {canCreateProjectCampaign ? (
                     <button
                       type="button"
@@ -231,6 +237,8 @@ export default function CampaignsPage() {
                       Duplicate
                     </button>
                   ) : null}
+                  </RequirePermission>
+                  <RequirePermission permissionKey="edit_campaign">
                   {canEditProjectCampaign ? (
                     <Link
                       href={`/campaigns/${campaign.id}/launch`}
@@ -240,6 +248,8 @@ export default function CampaignsPage() {
                       Launch
                     </Link>
                   ) : null}
+                  </RequirePermission>
+                  <RequirePermission permissionKey="edit_campaign">
                   {canEditProjectCampaign ? (
                     <button
                       type="button"
@@ -250,6 +260,8 @@ export default function CampaignsPage() {
                       {campaign.status === "paused" ? "Resume" : "Pause"}
                     </button>
                   ) : null}
+                  </RequirePermission>
+                  <RequirePermission permissionKey="edit_campaign">
                   {canEditProjectCampaign ? (
                     <Link
                       href={`/campaigns/${campaign.id}/channels`}
@@ -259,6 +271,8 @@ export default function CampaignsPage() {
                       Assign Bot
                     </Link>
                   ) : null}
+                  </RequirePermission>
+                  <RequirePermission permissionKey="edit_campaign">
                   {canEditProjectCampaign ? (
                     <Link
                       href={`/campaigns/${campaign.id}`}
@@ -268,6 +282,8 @@ export default function CampaignsPage() {
                       Change Project
                     </Link>
                   ) : null}
+                  </RequirePermission>
+                  <RequirePermission permissionKey="delete_campaign">
                   {canDeleteProjectCampaign ? (
                     <button
                       type="button"
@@ -278,6 +294,7 @@ export default function CampaignsPage() {
                       Delete
                     </button>
                   ) : null}
+                  </RequirePermission>
                 </div>
               </div>
             ))}

@@ -3,6 +3,7 @@ import Link from "next/link";
 import { io } from "socket.io-client";
 import apiClient from "../services/apiClient";
 import PageAccessNotice from "../components/access/PageAccessNotice";
+import RequirePermission from "../components/access/RequirePermission";
 import DashboardLayout from "../components/layout/DashboardLayout";
 import { useVisibility } from "../hooks/useVisibility";
 import { campaignService } from "../services/campaignService";
@@ -367,28 +368,34 @@ export default function TemplatesPage() {
                   </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-3 xl:justify-end">
-                <button
-                  onClick={() => setIsCampaignModalOpen(true)} 
-                  disabled={!canCreateProjectTemplates}
-                  className="inline-flex min-h-[52px] items-center gap-2 rounded-xl border border-[var(--line)] bg-[var(--surface)] px-5 py-2.5 text-sm font-bold text-[var(--text)] transition-all hover:border-[var(--line-strong)] hover:bg-[var(--surface-muted)]"
-                >
-                  <Send size={18} /> Launch Campaign
-                </button>
-                {selectedPlatform === "whatsapp" ? (
+                <RequirePermission permissionKey="can_create_campaign">
                   <button
-                    onClick={() => setIsImportModalOpen(true)}
+                    onClick={() => setIsCampaignModalOpen(true)} 
                     disabled={!canCreateProjectTemplates}
-                    className="inline-flex min-h-[52px] items-center gap-2 rounded-xl border border-[var(--line)] bg-[var(--surface)] px-5 py-2.5 text-sm font-bold text-[var(--text)] transition-all hover:border-[var(--line-strong)] hover:bg-[var(--surface-muted)] disabled:opacity-50"
+                    className="inline-flex min-h-[52px] items-center gap-2 rounded-xl border border-[var(--line)] bg-[var(--surface)] px-5 py-2.5 text-sm font-bold text-[var(--text)] transition-all hover:border-[var(--line-strong)] hover:bg-[var(--surface-muted)]"
                   >
-                    <Upload size={18} /> Sync All From Meta
+                    <Send size={18} /> Launch Campaign
                   </button>
+                </RequirePermission>
+                {selectedPlatform === "whatsapp" ? (
+                  <RequirePermission permissionKey="can_create_campaign">
+                    <button
+                      onClick={() => setIsImportModalOpen(true)}
+                      disabled={!canCreateProjectTemplates}
+                      className="inline-flex min-h-[52px] items-center gap-2 rounded-xl border border-[var(--line)] bg-[var(--surface)] px-5 py-2.5 text-sm font-bold text-[var(--text)] transition-all hover:border-[var(--line-strong)] hover:bg-[var(--surface-muted)] disabled:opacity-50"
+                    >
+                      <Upload size={18} /> Sync All From Meta
+                    </button>
+                  </RequirePermission>
                 ) : null}
-                <Link
-                  href="/templates/new"
-                  className={`inline-flex min-h-[52px] items-center gap-2 rounded-xl border border-[rgba(129,140,248,0.4)] bg-[linear-gradient(135deg,var(--accent),var(--accent-strong))] px-5 py-2.5 text-sm font-bold !text-white shadow-[0_18px_30px_var(--accent-glow)] transition-all [&>*]:!text-white ${!canCreateProjectTemplates ? "pointer-events-none opacity-50" : ""}`}
-                >
-                  <Plus size={18} /> Create Template
-                </Link>
+                <RequirePermission permissionKey="can_create_campaign">
+                  <Link
+                    href="/templates/new"
+                    className={`inline-flex min-h-[52px] items-center gap-2 rounded-xl border border-[rgba(129,140,248,0.4)] bg-[linear-gradient(135deg,var(--accent),var(--accent-strong))] px-5 py-2.5 text-sm font-bold !text-white shadow-[0_18px_30px_var(--accent-glow)] transition-all [&>*]:!text-white ${!canCreateProjectTemplates ? "pointer-events-none opacity-50" : ""}`}
+                  >
+                    <Plus size={18} /> Create Template
+                  </Link>
+                </RequirePermission>
               </div>
               </div>
             )}
@@ -467,31 +474,37 @@ export default function TemplatesPage() {
                           </button>
                           {t.platform_type === "whatsapp" && String(t.status || "").toLowerCase() !== "approved" ? (
                             <>
-                              <button
-                                onClick={() => handleSubmitToMeta(t.id)}
-                                disabled={!canEditProjectTemplates || isMetaSubmitted(t)}
-                                className={getMetaActionClass(t, !canEditProjectTemplates || isMetaSubmitted(t))}
-                                title={isMetaSubmitted(t) ? "Already linked to Meta" : "Submit to Meta for approval"}
-                              >
-                                <CloudUpload size={16} />
-                              </button>
-                              <button
-                                onClick={() => handleSyncMetaStatus(t.id)}
-                                className={getMetaActionClass(t)}
-                                title="Sync status from Meta"
-                              >
-                                <RefreshCcw size={16} />
-                              </button>
+                              <RequirePermission permissionKey="edit_campaign">
+                                <button
+                                  onClick={() => handleSubmitToMeta(t.id)}
+                                  disabled={!canEditProjectTemplates || isMetaSubmitted(t)}
+                                  className={getMetaActionClass(t, !canEditProjectTemplates || isMetaSubmitted(t))}
+                                  title={isMetaSubmitted(t) ? "Already linked to Meta" : "Submit to Meta for approval"}
+                                >
+                                  <CloudUpload size={16} />
+                                </button>
+                                <button
+                                  onClick={() => handleSyncMetaStatus(t.id)}
+                                  className={getMetaActionClass(t)}
+                                  title="Sync status from Meta"
+                                >
+                                  <RefreshCcw size={16} />
+                                </button>
+                              </RequirePermission>
                             </>
                           ) : null}
-                          <Link
-                            href={`/templates/${t.id}/edit`}
-                            className={`rounded-lg p-2 transition-all ${t.status === 'approved' || !canEditProjectTemplates ? 'pointer-events-none text-[var(--muted)]/40' : 'text-[var(--muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--accent)]'}`}
-                            title={t.status === 'approved' ? "Approved templates cannot be edited" : !canEditProjectTemplates ? "Edit permission required" : "Edit Template"}
-                          >
-                            <Edit size={16} />
-                          </Link>
-                          <button disabled={!canDeleteProjectTemplates} onClick={() => handleDelete(t.id)} className="rounded-lg p-2 text-[var(--muted)] transition-all hover:bg-rose-500/10 hover:text-rose-200 disabled:opacity-40"><Trash2 size={16} /></button>
+                          <RequirePermission permissionKey="edit_campaign">
+                            <Link
+                              href={`/templates/${t.id}/edit`}
+                              className={`rounded-lg p-2 transition-all ${t.status === 'approved' || !canEditProjectTemplates ? 'pointer-events-none text-[var(--muted)]/40' : 'text-[var(--muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--accent)]'}`}
+                              title={t.status === 'approved' ? "Approved templates cannot be edited" : !canEditProjectTemplates ? "Edit permission required" : "Edit Template"}
+                            >
+                              <Edit size={16} />
+                            </Link>
+                          </RequirePermission>
+                          <RequirePermission permissionKey="delete_campaign">
+                            <button disabled={!canDeleteProjectTemplates} onClick={() => handleDelete(t.id)} className="rounded-lg p-2 text-[var(--muted)] transition-all hover:bg-rose-500/10 hover:text-rose-200 disabled:opacity-40"><Trash2 size={16} /></button>
+                          </RequirePermission>
                         </div>
                       </td>
                     </tr>

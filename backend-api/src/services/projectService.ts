@@ -22,6 +22,7 @@ import { assertProjectQuota } from "./businessValidationService";
 import {
   assertProjectMembership,
   assertProjectScopedWriteAccess,
+  resolveVisibleProjectIdsForWorkspace,
   resolveCurrentProjectForWorkspace,
 } from "./projectAccessService";
 import {
@@ -81,17 +82,13 @@ function buildDefaultProjectSettings(projectId: string): ProjectSettingsRecord {
 
 export async function listProjectsByWorkspaceService(workspaceId: string, userId: string) {
   await assertWorkspaceMembership(userId, workspaceId);
-
-  try {
-    await assertWorkspacePermission(userId, workspaceId, WORKSPACE_PERMISSIONS.viewProjects);
-    return findProjectsByWorkspace(workspaceId);
-  } catch (error: any) {
-    if (error?.status && error.status !== 403) {
-      throw error;
-    }
+  const visibleProjectIds = await resolveVisibleProjectIdsForWorkspace(userId, workspaceId);
+  const rows = await findProjectsByWorkspace(workspaceId);
+  if (visibleProjectIds === null) {
+    return rows;
   }
 
-  return listProjectsByUserService(userId, workspaceId);
+  return rows.filter((row) => visibleProjectIds.includes(String(row.id || "").trim()));
 }
 
 export async function listProjectsByUserService(userId: string, workspaceId?: string | null) {

@@ -6,30 +6,53 @@ interface WorkspaceInput {
   planId?: string | null;
   status?: string;
   lockReason?: string | null;
+  agentSeatLimitOverride?: number | null;
+  projectLimitOverride?: number | null;
+  activeBotLimitOverride?: number | null;
+  monthlyCampaignLimitOverride?: number | null;
+  maxNumbersOverride?: number | null;
+  aiReplyLimitOverride?: number | null;
 }
 
 const WORKSPACE_SELECT_BASE = `SELECT
        w.*,
-       s.id AS subscription_id,
-       s.status AS subscription_status,
-       s.expiry_date,
-       s.grace_period_end,
-       s.billing_cycle,
-       s.currency,
-       s.price_amount,
-       s.auto_renew,
+       bs.id::text AS subscription_id,
+       bs.status AS subscription_status,
+       bs.current_period_end AS expiry_date,
+       NULL::timestamptz AS grace_period_end,
+       bs.billing_cycle AS billing_cycle,
+       bs.currency AS currency,
+       bs.base_price_amount AS price_amount,
+       (bs.canceled_at IS NULL) AS auto_renew,
+       COALESCE(bs.plan_id, w.plan_id) AS effective_plan_id,
        p.name AS subscription_plan_name,
+       bs.seat_quantity,
+       bs.included_seat_limit,
+       bs.extra_seat_quantity,
+       bs.extra_seat_unit_price,
+       bs.ai_reply_limit,
+       bs.ai_overage_unit_price,
+       bs.wallet_auto_topup_enabled,
+       bs.wallet_auto_topup_amount,
+       bs.wallet_low_balance_threshold,
+       bs.external_customer_ref,
+       bs.external_subscription_ref,
+       bs.current_period_start,
+       bs.current_period_end,
+       bs.trial_ends_at,
+       bs.canceled_at,
+       bs.metadata AS billing_metadata,
        COALESCE(campaign_counts.campaign_count, 0) AS campaign_count,
        COALESCE(account_counts.platform_account_count, 0) AS platform_account_count
      FROM workspaces
      w
      LEFT JOIN LATERAL (
        SELECT *
-       FROM subscriptions s
-       WHERE s.workspace_id = w.id
-       ORDER BY s.created_at DESC
+       FROM billing_subscriptions bs
+       WHERE bs.workspace_id = w.id
+       ORDER BY bs.created_at DESC
        LIMIT 1
-     ) s ON true
+     ) bs ON true
      LEFT JOIN LATERAL (
        SELECT COUNT(*)::int AS campaign_count
        FROM campaigns c
@@ -40,7 +63,7 @@ const WORKSPACE_SELECT_BASE = `SELECT
        FROM platform_accounts pa
        WHERE pa.workspace_id = w.id
      ) account_counts ON true
-     LEFT JOIN plans p ON p.id = s.plan_id`;
+     LEFT JOIN plans p ON p.id = COALESCE(bs.plan_id, w.plan_id)`;
 
 const WORKSPACE_SELECT_PLAN_LIMITS = `,
        p.max_campaigns,
@@ -60,7 +83,24 @@ const WORKSPACE_SELECT_LEGACY = `SELECT
        NULL::text AS currency,
        NULL::numeric AS price_amount,
        NULL::boolean AS auto_renew,
+       w.plan_id AS effective_plan_id,
        NULL::text AS subscription_plan_name,
+       NULL::int AS seat_quantity,
+       NULL::int AS included_seat_limit,
+       NULL::int AS extra_seat_quantity,
+       NULL::numeric AS extra_seat_unit_price,
+       NULL::int AS ai_reply_limit,
+       NULL::numeric AS ai_overage_unit_price,
+       NULL::boolean AS wallet_auto_topup_enabled,
+       NULL::numeric AS wallet_auto_topup_amount,
+       NULL::numeric AS wallet_low_balance_threshold,
+       NULL::text AS external_customer_ref,
+       NULL::text AS external_subscription_ref,
+       NULL::timestamptz AS current_period_start,
+       NULL::timestamptz AS current_period_end,
+       NULL::timestamptz AS trial_ends_at,
+       NULL::timestamptz AS canceled_at,
+       '{}'::jsonb AS billing_metadata,
        0::int AS campaign_count,
        0::int AS platform_account_count,
        NULL::int AS max_campaigns,
@@ -193,14 +233,32 @@ export async function updateWorkspace(
          WHEN COALESCE($3, status) <> 'locked' THEN NULL
          ELSE locked_at
        END,
+       agent_seat_limit_override = CASE WHEN $5 THEN $6 ELSE agent_seat_limit_override END,
+       project_limit_override = CASE WHEN $7 THEN $8 ELSE project_limit_override END,
+       active_bot_limit_override = CASE WHEN $9 THEN $10 ELSE active_bot_limit_override END,
+       monthly_campaign_limit_override = CASE WHEN $11 THEN $12 ELSE monthly_campaign_limit_override END,
+       max_numbers_override = CASE WHEN $13 THEN $14 ELSE max_numbers_override END,
+       ai_reply_limit_override = CASE WHEN $15 THEN $16 ELSE ai_reply_limit_override END,
        updated_at = NOW()
-     WHERE id = $5
+     WHERE id = $17
      RETURNING *`,
     [
       input.name || null,
       input.planId || null,
       input.status || null,
       input.lockReason === undefined ? null : input.lockReason,
+      input.agentSeatLimitOverride !== undefined,
+      input.agentSeatLimitOverride ?? null,
+      input.projectLimitOverride !== undefined,
+      input.projectLimitOverride ?? null,
+      input.activeBotLimitOverride !== undefined,
+      input.activeBotLimitOverride ?? null,
+      input.monthlyCampaignLimitOverride !== undefined,
+      input.monthlyCampaignLimitOverride ?? null,
+      input.maxNumbersOverride !== undefined,
+      input.maxNumbersOverride ?? null,
+      input.aiReplyLimitOverride !== undefined,
+      input.aiReplyLimitOverride ?? null,
       id,
     ]
   );

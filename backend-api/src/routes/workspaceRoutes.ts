@@ -16,7 +16,12 @@ import {
   createWorkspaceCtrl,
   deleteWorkspaceCtrl,
   denyWorkspaceSupportRequestCtrl,
+  getWorkspaceBillingContextCtrl,
   getWorkspaceCtrl,
+  getWorkspaceOverviewCtrl,
+  getWorkspaceWalletCtrl,
+  createWorkspaceWalletAdjustmentCtrl,
+  ingestWorkspaceKnowledgeCtrl,
   grantWorkspaceSupportAccessCtrl,
   lockWorkspaceCtrl,
   listWorkspaceMembersCtrl,
@@ -24,7 +29,9 @@ import {
   listWorkspaceSupportRequestsCtrl,
   listWorkspacesCtrl,
   removeWorkspaceUserCtrl,
+  repairWorkspaceWhatsAppContactsCtrl,
   revokeWorkspaceSupportAccessCtrl,
+  searchWorkspaceKnowledgeCtrl,
   unlockWorkspaceCtrl,
   updateWorkspaceBillingCtrl,
   updateWorkspaceCtrl,
@@ -37,7 +44,7 @@ router.use(authMiddleware);
 router.use(requireAuthenticatedUser);
 
 router.get("/", listWorkspacesCtrl);
-router.post("/", createWorkspaceCtrl);
+router.post("/", requirePlatformRoles(["super_admin", "developer"]), createWorkspaceCtrl);
 router.get(
   "/:id/members-access",
   resolveWorkspaceContext,
@@ -128,14 +135,43 @@ router.delete(
   revokeWorkspaceSupportAccessCtrl
 );
 router.get("/:id/support-requests", resolveWorkspaceContext, requireWorkspaceAccess, listWorkspaceSupportRequestsCtrl);
+router.get("/:id/overview", resolveWorkspaceContext, requireWorkspaceAccess, getWorkspaceOverviewCtrl);
+router.get("/:id/wallet", resolveWorkspaceContext, requireWorkspaceAccess, getWorkspaceWalletCtrl);
+router.get("/:id/billing-context", requirePlatformRoles(["super_admin", "developer"]), getWorkspaceBillingContextCtrl);
+router.post(
+  "/:id/wallet",
+  requirePlatformRoles(["super_admin", "developer"]),
+  createWorkspaceWalletAdjustmentCtrl
+);
+router.get("/:id/knowledge/search", resolveWorkspaceContext, requireWorkspaceAccess, searchWorkspaceKnowledgeCtrl);
+router.post(
+  "/:id/knowledge/documents",
+  resolveWorkspaceContext,
+  requireWorkspacePermission(WORKSPACE_PERMISSIONS.manageWorkspace),
+  ingestWorkspaceKnowledgeCtrl
+);
+router.post(
+  "/:id/repair/whatsapp-contacts",
+  resolveWorkspaceContext,
+  requireWorkspacePermission(WORKSPACE_PERMISSIONS.manageWorkspace),
+  repairWorkspaceWhatsAppContactsCtrl
+);
 router.post(
   "/:id/support-requests",
   resolveWorkspaceContext,
   requireWorkspaceAccess,
   createWorkspaceSupportRequestCtrl
 );
-router.post("/:id/support-requests/:requestId/approve", approveWorkspaceSupportRequestCtrl);
-router.post("/:id/support-requests/:requestId/deny", denyWorkspaceSupportRequestCtrl);
+router.post(
+  "/:id/support-requests/:requestId/approve",
+  requirePlatformRoles(["super_admin", "developer"]),
+  approveWorkspaceSupportRequestCtrl
+);
+router.post(
+  "/:id/support-requests/:requestId/deny",
+  requirePlatformRoles(["super_admin", "developer"]),
+  denyWorkspaceSupportRequestCtrl
+);
 router.get("/:id", resolveWorkspaceContext, requireWorkspaceAccess, getWorkspaceCtrl);
 
 export default router;

@@ -4,6 +4,7 @@ import path from "path";
 import fs from "fs";
 import { authMiddleware } from "../middleware/authMiddleware";
 import { uploadLeadsCSV, uploadMetaTemplateSample } from "../controllers/uploadController";
+import { buildPublicFileUrl } from "../utils/publicUrl";
 
 const router = Router();
 
@@ -59,7 +60,7 @@ router.post("/", upload.single("file"), (req, res) => {
 
   // Generate public URL. 
   // NOTE: Meta/WhatsApp cannot see 'localhost'. Use your ngrok/public URL here.
-  const fileUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
+  const fileUrl = buildPublicFileUrl(req.file.filename);
 
   res.json({ 
     url: fileUrl,

@@ -4,6 +4,7 @@ import { AuthRequest } from "../middleware/authMiddleware";
 import { query } from "../config/db";
 import {
   createPlatformUserService,
+  deletePlatformUserService,
   listPlatformUsersService,
   updatePlatformUserService,
 } from "../services/userService";
@@ -106,6 +107,28 @@ export const updatePlatformUserCtrl = async (
     }
 
     const data = await updatePlatformUserService(userId, id, req.body || {});
+    res.json(data);
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const deletePlatformUserCtrl = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const userId = getUserId(req);
+    const id = req.params.id;
+    if (!userId) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    if (!id) {
+      return res.status(400).json({ error: "User id is required" });
+    }
+
+    const data = await deletePlatformUserService(userId, id);
     res.json(data);
   } catch (err) {
     next(err);

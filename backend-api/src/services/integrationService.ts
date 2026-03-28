@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import axios from "axios";
 
 import { env } from "../config/env";
 import { query } from "../config/db";
@@ -92,7 +93,66 @@ function buildPublicApiBaseUrl() {
   );
 }
 
+function buildGlobalWebhookUrl() {
+  return `${buildPublicApiBaseUrl()}/api/webhook/global`;
+}
+
+function buildMetaOAuthCallbackUrl() {
+  return `${buildPublicApiBaseUrl()}/api/integrations/meta/callback`;
+}
+
+function decodeEmbeddedSignupState(state: string) {
+  try {
+    const decoded = Buffer.from(String(state || ""), "base64url").toString("utf8");
+    const parsed = JSON.parse(decoded);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function getEmbeddedSignupAppRedirectUri(value: unknown) {
+  const fallback = `${env.PUBLIC_APP_BASE_URL.replace(/\/$/, "")}/integrations`;
+  const candidate = String(value || "").trim();
+  if (!candidate) {
+    return fallback;
+  }
+
+  try {
+    const url = new URL(candidate);
+    if (!/^https?:$/i.test(url.protocol)) {
+      return fallback;
+    }
+    return url.toString();
+  } catch {
+    return fallback;
+  }
+}
+
+async function exchangeMetaOAuthCode(code: string, redirectUri: string) {
+  const response = await axios.get(
+    `https://graph.facebook.com/${process.env.META_GRAPH_VERSION || "v23.0"}/oauth/access_token`,
+    {
+      params: {
+        client_id: env.META_APP_ID,
+        client_secret: env.META_APP_SECRET,
+        redirect_uri: redirectUri,
+        code,
+      },
+    }
+  );
+
+  return response.data as {
+    access_token?: string;
+    token_type?: string;
+    expires_in?: number;
+  };
+}
+
 function buildWebhookUrl(platform: SupportedPlatform, botId: string) {
+  if (platform === "whatsapp" || platform === "facebook" || platform === "instagram") {
+    return buildGlobalWebhookUrl();
+  }
   return `${buildPublicApiBaseUrl()}/api/webhook/${platform}/${botId}`;
 }
 
@@ -260,17 +320,6 @@ export async function getIntegrationsService(botId: string, userId: string) {
   return integrations.map(sanitizeIntegration);
 }
 
-export async function getIntegrationService(id: string, userId: string) {
-  const integration = await findCompatibilityAccountById(id);
-
-  if (!integration) {
-    throw { status: 404, message: "Integration not found" };
-  }
-
-  await ensureBotAccess(integration.bot_id, userId);
-  return sanitizeIntegration(integration);
-}
-
 export async function generateConnectionDetailsService(
   botId: string,
   userId: string,
@@ -366,6 +415,237 @@ export async function generateConnectionDetailsService(
       verifyToken,
     },
   };
+}
+
+export async function createMetaEmbeddedSignupSessionService(
+  botId: string,
+  userId: string,
+  options?: {
+    platform?: string;
+    redirectUri?: string | null;
+  }
+) {
+  await ensureBotAccess(botId, userId);
+  const bot = await findBotContext(botId);
+  const platform = normalizeChannel(String(options?.platform || "whatsapp"));
+  if (!["whatsapp", "facebook", "instagram"].includes(platform)) {
+    throw { status: 400, message: "Embedded signup is only supported for Meta platforms." };
+  }
+  if (!env.META_APP_ID || !env.META_EMBEDDED_SIGNUP_CONFIG_ID) {
+    throw {
+      status: 500,
+      message: "Meta embedded signup is not configured. Set META_APP_ID and META_EMBEDDED_SIGNUP_CONFIG_ID.",
+    };
+  }
+
+  const appRedirectUri = getEmbeddedSignupAppRedirectUri(options?.redirectUri);
+  const redirectUri = buildMetaOAuthCallbackUrl();
+  const statePayload = Buffer.from(
+    JSON.stringify({
+      botId,
+      workspaceId: bot.workspace_id,
+      projectId: bot.project_id,
+      platform,
+      appRedirectUri,
+      issuedAt: new Date().toISOString(),
+    })
+  ).toString("base64url");
+
+  const url = new URL(`https://www.facebook.com/${process.env.META_GRAPH_VERSION || "v23.0"}/dialog/oauth`);
+  url.searchParams.set("client_id", env.META_APP_ID);
+  url.searchParams.set("redirect_uri", redirectUri);
+  url.searchParams.set("state", statePayload);
+  url.searchParams.set("response_type", "code");
+  url.searchParams.set(
+    "scope",
+    "business_management,whatsapp_business_management,whatsapp_business_messaging,pages_manage_metadata,pages_messaging"
+  );
+  url.searchParams.set("config_id", env.META_EMBEDDED_SIGNUP_CONFIG_ID);
+
+  return {
+    signupUrl: url.toString(),
+    platform,
+    redirectUri,
+    appRedirectUri,
+    webhookUrl: buildGlobalWebhookUrl(),
+    state: statePayload,
+  };
+}
+
+export async function completeMetaEmbeddedSignupService(input: {
+  userId: string;
+  code: string;
+  state: string;
+  platform?: string | null;
+  accountId?: string | null;
+  phoneNumberId?: string | null;
+  businessId?: string | null;
+  metaBusinessId?: string | null;
+  name?: string | null;
+}) {
+  if (!env.META_APP_ID || !env.META_APP_SECRET) {
+    throw {
+      status: 500,
+      message: "Meta OAuth is not configured. Set META_APP_ID and META_APP_SECRET.",
+    };
+  }
+
+  const state = decodeEmbeddedSignupState(input.state);
+  if (!state?.botId) {
+    throw { status: 400, message: "Invalid embedded signup state." };
+  }
+
+  await ensureBotAccess(String(state.botId), input.userId);
+  const bot = await findBotContext(String(state.botId));
+  const redirectUri = buildMetaOAuthCallbackUrl();
+  const platform = normalizeChannel(String(input.platform || state.platform || "whatsapp"));
+  if (!["whatsapp", "facebook", "instagram"].includes(platform)) {
+    throw { status: 400, message: "Embedded signup completion only supports Meta platforms." };
+  }
+
+  const oauth = await exchangeMetaOAuthCode(String(input.code || "").trim(), redirectUri);
+  const accessToken = String(oauth?.access_token || "").trim();
+  if (!accessToken) {
+    throw { status: 502, message: "Meta OAuth token exchange did not return an access token." };
+  }
+
+  const accountId =
+    String(input.accountId || "").trim() ||
+    String(input.phoneNumberId || "").trim() ||
+    null;
+  const businessId =
+    String(input.businessId || "").trim() ||
+    String(input.metaBusinessId || "").trim() ||
+    null;
+  const name =
+    String(input.name || "").trim() ||
+    `${PLATFORM_REQUIREMENTS[platform as SupportedPlatform].label} (${bot.name})`;
+
+  const res = await query(
+    `SELECT *
+     FROM platform_accounts
+     WHERE workspace_id = $1
+       AND project_id = $2
+       AND platform_type = $3
+       AND (
+         ($4::text IS NOT NULL AND account_id = $4)
+         OR metadata->>'legacyBotId' = $5
+       )
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    [bot.workspace_id, bot.project_id, platform, accountId, bot.id]
+  );
+
+  const existing = res.rows[0] as CompatibilityPlatformAccount | undefined;
+  const metadata = buildCompatibilityMetadata({
+    botId: bot.id,
+    platform: platform as SupportedPlatform,
+    verifyToken: generateVerifyToken(),
+    webhookUrl: buildWebhookUrl(platform as SupportedPlatform, bot.id),
+    credentials: {
+      accessToken,
+      ...(String(input.phoneNumberId || "").trim()
+        ? { phoneNumberId: String(input.phoneNumberId || "").trim() }
+        : {}),
+      ...(platform === "facebook" && accountId ? { pageId: accountId } : {}),
+      ...(platform === "instagram" && accountId ? { instagramAccountId: accountId } : {}),
+    },
+    existingMetadata: getMetadata(existing),
+  });
+
+  let saved: CompatibilityPlatformAccount;
+  if (existing) {
+    const updated = await query(
+      `UPDATE platform_accounts
+       SET
+         name = $1,
+         account_id = COALESCE($2, account_id),
+         phone_number = COALESCE($3, phone_number),
+         token = $4,
+         business_id = COALESCE($5, business_id),
+         metadata = $6::jsonb,
+         status = 'active',
+         updated_at = NOW()
+       WHERE id = $7
+       RETURNING *, $8::uuid AS bot_id`,
+      [
+        name,
+        accountId,
+        String(input.phoneNumberId || "").trim() || null,
+        JSON.stringify(encryptSecret(accessToken)),
+        businessId,
+        JSON.stringify({
+          ...metadata,
+          metaBusinessId: String(input.metaBusinessId || "").trim() || null,
+          embeddedSignup: true,
+          oauthCompletedAt: new Date().toISOString(),
+        }),
+        existing.id,
+        bot.id,
+      ]
+    );
+    saved = updated.rows[0] as CompatibilityPlatformAccount;
+  } else {
+    const inserted = await query(
+      `INSERT INTO platform_accounts
+         (user_id, workspace_id, project_id, platform_type, name, phone_number, account_id, token, business_id, status, metadata)
+       VALUES
+         ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active', $10::jsonb)
+       RETURNING *, $11::uuid AS bot_id`,
+      [
+        input.userId,
+        bot.workspace_id,
+        bot.project_id,
+        platform,
+        name,
+        String(input.phoneNumberId || "").trim() || null,
+        accountId,
+        JSON.stringify(encryptSecret(accessToken)),
+        businessId,
+        JSON.stringify({
+          ...metadata,
+          metaBusinessId: String(input.metaBusinessId || "").trim() || null,
+          embeddedSignup: true,
+          oauthCompletedAt: new Date().toISOString(),
+        }),
+        bot.id,
+      ]
+    );
+    saved = inserted.rows[0] as CompatibilityPlatformAccount;
+  }
+
+  await logAuditSafe({
+    userId: input.userId,
+    workspaceId: bot.workspace_id,
+    projectId: bot.project_id,
+    action: existing ? "update" : "create",
+    entity: "integration",
+    entityId: saved.id,
+    newData: saved as unknown as Record<string, unknown>,
+  });
+
+  return {
+    integration: sanitizeIntegration(saved),
+    webhookUrl: buildGlobalWebhookUrl(),
+  };
+}
+
+export function resolveMetaEmbeddedSignupAppRedirect(input: {
+  code?: string | null;
+  state?: string | null;
+}) {
+  const decodedState = decodeEmbeddedSignupState(String(input.state || ""));
+  const targetBase = getEmbeddedSignupAppRedirectUri(decodedState?.appRedirectUri);
+  const target = new URL(targetBase);
+
+  if (String(input.code || "").trim()) {
+    target.searchParams.set("code", String(input.code || "").trim());
+  }
+  if (String(input.state || "").trim()) {
+    target.searchParams.set("state", String(input.state || "").trim());
+  }
+
+  return target.toString();
 }
 
 export async function updateIntegrationService(

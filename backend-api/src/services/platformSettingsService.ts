@@ -1,0 +1,534 @@
+import crypto from "crypto";
+import nodemailer from "nodemailer";
+
+import { env } from "../config/env";
+import { decryptSecret, encryptSecret } from "../utils/encryption";
+import { getPlatformSettingsRecord, upsertPlatformSettingsRecord } from "../models/platformSettingsModel";
+import { logAuditSafe } from "./auditLogService";
+import { listPlatformAuditLogs } from "../models/auditLogModel";
+
+function previewValue(value: string, visible = 4) {
+  const trimmed = String(value || "").trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  if (trimmed.length <= visible) {
+    return trimmed;
+  }
+
+  return `${"*".repeat(Math.max(4, trimmed.length - visible))}${trimmed.slice(-visible)}`;
+}
+
+function normalizeBaseUrl(value: string, fallback: string) {
+  return String(value || fallback).trim().replace(/\/$/, "");
+}
+
+const GLOBAL_INTEGRATIONS_KEY = "global_integrations";
+const EMAIL_SERVICES_KEY = "email_services";
+const AI_PROVIDERS_KEY = "ai_providers";
+const BILLING_WALLET_KEY = "billing_wallet";
+
+type GlobalIntegrationsStoredSettings = {
+  publicApiBaseUrl?: string;
+  publicAppBaseUrl?: string;
+  metaAppId?: string;
+  metaAppSecret?: unknown;
+  embeddedSignupConfigId?: string;
+  legacyVerifyToken?: unknown;
+};
+
+type EmailServicesStoredSettings = {
+  smtpHost?: string;
+  smtpPort?: number | string;
+  smtpUser?: string;
+  smtpPass?: unknown;
+  smtpFrom?: string;
+};
+
+type AiProvidersStoredSettings = {
+  defaultProvider?: string;
+  defaultModel?: string;
+  openaiApiKey?: unknown;
+  openaiModel?: string;
+  geminiApiKey?: unknown;
+  geminiModel?: string;
+};
+
+type BillingWalletStoredSettings = {
+  stripePublicKey?: string;
+  stripeSecretKey?: unknown;
+  razorpayKeyId?: string;
+  razorpayKeySecret?: unknown;
+  defaultCurrency?: string;
+  walletAutoTopupDefaultEnabled?: boolean;
+  walletAutoTopupDefaultAmount?: number | string;
+  walletLowBalanceThresholdDefault?: number | string;
+};
+
+function sanitizeStoredSettings(record: any): GlobalIntegrationsStoredSettings {
+  return record?.settings_json && typeof record.settings_json === "object"
+    ? (record.settings_json as GlobalIntegrationsStoredSettings)
+    : {};
+}
+
+function sanitizeEmailSettings(record: any): EmailServicesStoredSettings {
+  return record?.settings_json && typeof record.settings_json === "object"
+    ? (record.settings_json as EmailServicesStoredSettings)
+    : {};
+}
+
+function sanitizeAiSettings(record: any): AiProvidersStoredSettings {
+  return record?.settings_json && typeof record.settings_json === "object"
+    ? (record.settings_json as AiProvidersStoredSettings)
+    : {};
+}
+
+function sanitizeBillingWalletSettings(record: any): BillingWalletStoredSettings {
+  return record?.settings_json && typeof record.settings_json === "object"
+    ? (record.settings_json as BillingWalletStoredSettings)
+    : {};
+}
+
+function toSafeNumber(value: unknown, fallback: number) {
+  const next = Number(value);
+  return Number.isFinite(next) ? next : fallback;
+}
+
+function resolveEffectiveGlobalIntegrations(stored: GlobalIntegrationsStoredSettings) {
+  const publicApiBaseUrl = normalizeBaseUrl(
+    String(stored.publicApiBaseUrl || env.PUBLIC_API_BASE_URL || ""),
+    `http://localhost:${env.PORT || "4000"}`
+  );
+  const publicAppBaseUrl = normalizeBaseUrl(
+    String(stored.publicAppBaseUrl || env.PUBLIC_APP_BASE_URL || ""),
+    "http://localhost:3000"
+  );
+  const metaAppId = String(stored.metaAppId || env.META_APP_ID || "").trim();
+  const embeddedSignupConfigId = String(
+    stored.embeddedSignupConfigId || env.META_EMBEDDED_SIGNUP_CONFIG_ID || ""
+  ).trim();
+  const metaAppSecret =
+    decryptSecret(stored.metaAppSecret) || String(env.META_APP_SECRET || "").trim();
+  const legacyVerifyToken =
+    decryptSecret(stored.legacyVerifyToken) ||
+    String(process.env.WA_VERIFY_TOKEN || "").trim() ||
+    String(process.env.VERIFY_TOKEN || "").trim() ||
+    "";
+
+  return {
+    meta: {
+      appId: metaAppId || null,
+      appIdPreview: previewValue(metaAppId, 6),
+      appSecretConfigured: Boolean(metaAppSecret),
+      embeddedSignupConfigId: embeddedSignupConfigId || null,
+      embeddedSignupConfigIdPreview: previewValue(embeddedSignupConfigId, 6),
+      signatureVerificationEnabled: Boolean(metaAppSecret),
+      legacyVerifyTokenConfigured: Boolean(legacyVerifyToken),
+      legacyVerifyTokenPreview: previewValue(legacyVerifyToken, 6),
+    },
+    urls: {
+      publicApiBaseUrl,
+      publicAppBaseUrl,
+      globalWebhookUrl: `${publicApiBaseUrl}/api/webhook/global`,
+      metaOAuthCallbackUrl: `${publicApiBaseUrl}/api/integrations/meta/callback`,
+      integrationsAppUrl: `${publicAppBaseUrl}/integrations`,
+    },
+    readiness: {
+      metaEmbeddedSignupReady: Boolean(metaAppId && embeddedSignupConfigId),
+      metaOAuthReady: Boolean(metaAppId && metaAppSecret),
+      globalWebhookReady: Boolean(publicApiBaseUrl),
+    },
+    editable: {
+      publicApiBaseUrl,
+      publicAppBaseUrl,
+      metaAppId: metaAppId || "",
+      embeddedSignupConfigId: embeddedSignupConfigId || "",
+    },
+  };
+}
+
+export async function getGlobalIntegrationsSettingsService() {
+  const storedRecord = await getPlatformSettingsRecord(GLOBAL_INTEGRATIONS_KEY);
+  const storedSettings = sanitizeStoredSettings(storedRecord);
+  return resolveEffectiveGlobalIntegrations(storedSettings);
+}
+
+export async function updateGlobalIntegrationsSettingsService(input: {
+  userId: string;
+  publicApiBaseUrl: string;
+  publicAppBaseUrl: string;
+  metaAppId: string;
+  embeddedSignupConfigId: string;
+  metaAppSecret?: string | null;
+  legacyVerifyToken?: string | null;
+}) {
+  const existingRecord = await getPlatformSettingsRecord(GLOBAL_INTEGRATIONS_KEY);
+  const existingSettings = sanitizeStoredSettings(existingRecord);
+
+  const nextSettings: GlobalIntegrationsStoredSettings = {
+    publicApiBaseUrl: normalizeBaseUrl(
+      String(input.publicApiBaseUrl || ""),
+      `http://localhost:${env.PORT || "4000"}`
+    ),
+    publicAppBaseUrl: normalizeBaseUrl(
+      String(input.publicAppBaseUrl || ""),
+      "http://localhost:3000"
+    ),
+    metaAppId: String(input.metaAppId || "").trim(),
+    embeddedSignupConfigId: String(input.embeddedSignupConfigId || "").trim(),
+    metaAppSecret:
+      typeof input.metaAppSecret === "string" && input.metaAppSecret.trim()
+        ? encryptSecret(input.metaAppSecret.trim())
+        : existingSettings.metaAppSecret || null,
+    legacyVerifyToken:
+      typeof input.legacyVerifyToken === "string" && input.legacyVerifyToken.trim()
+        ? encryptSecret(input.legacyVerifyToken.trim())
+        : existingSettings.legacyVerifyToken || null,
+  };
+
+  await upsertPlatformSettingsRecord({
+    settingsKey: GLOBAL_INTEGRATIONS_KEY,
+    settingsJson: nextSettings as unknown as Record<string, unknown>,
+    userId: input.userId,
+  });
+
+  await logAuditSafe({
+    userId: input.userId,
+    action: "update",
+    entity: "platform_settings",
+    entityId: GLOBAL_INTEGRATIONS_KEY,
+    oldData: resolveEffectiveGlobalIntegrations(existingSettings) as unknown as Record<string, unknown>,
+    newData: resolveEffectiveGlobalIntegrations(nextSettings) as unknown as Record<string, unknown>,
+    metadata: {
+      settings_key: GLOBAL_INTEGRATIONS_KEY,
+      platform_scope: "global",
+    },
+  });
+
+  return getGlobalIntegrationsSettingsService();
+}
+
+export async function testGlobalIntegrationsSettingsService() {
+  const settings = await getGlobalIntegrationsSettingsService();
+  const checks = [
+    {
+      key: "public_api_base_url",
+      label: "Public API base URL",
+      ok: /^https?:\/\//i.test(settings.urls.publicApiBaseUrl),
+      detail: settings.urls.publicApiBaseUrl,
+    },
+    {
+      key: "public_app_base_url",
+      label: "Public app base URL",
+      ok: /^https?:\/\//i.test(settings.urls.publicAppBaseUrl),
+      detail: settings.urls.publicAppBaseUrl,
+    },
+    {
+      key: "meta_oauth",
+      label: "Meta OAuth credentials",
+      ok: settings.readiness.metaOAuthReady,
+      detail: settings.readiness.metaOAuthReady
+        ? "Meta App ID and secret are configured."
+        : "Meta App ID or secret is missing.",
+    },
+    {
+      key: "embedded_signup",
+      label: "Meta embedded signup",
+      ok: settings.readiness.metaEmbeddedSignupReady,
+      detail: settings.readiness.metaEmbeddedSignupReady
+        ? "Embedded signup config is ready."
+        : "Meta App ID or embedded signup config id is missing.",
+    },
+    {
+      key: "webhook_signature",
+      label: "Webhook signature verification",
+      ok: settings.meta.signatureVerificationEnabled,
+      detail: settings.meta.signatureVerificationEnabled
+        ? "Signature verification is enabled."
+        : "Signature verification is disabled until a Meta app secret is configured.",
+    },
+  ];
+
+  return {
+    ok: checks.every((check) => check.ok),
+    checkedAt: new Date().toISOString(),
+    checks,
+  };
+}
+
+export async function regenerateGlobalVerifyTokenService(userId: string) {
+  const existingRecord = await getPlatformSettingsRecord(GLOBAL_INTEGRATIONS_KEY);
+  const existingSettings = sanitizeStoredSettings(existingRecord);
+  const nextToken = crypto.randomBytes(24).toString("hex");
+
+  const nextSettings: GlobalIntegrationsStoredSettings = {
+    ...existingSettings,
+    legacyVerifyToken: encryptSecret(nextToken),
+  };
+
+  await upsertPlatformSettingsRecord({
+    settingsKey: GLOBAL_INTEGRATIONS_KEY,
+    settingsJson: nextSettings as unknown as Record<string, unknown>,
+    userId,
+  });
+
+  await logAuditSafe({
+    userId,
+    action: "rotate",
+    entity: "platform_settings",
+    entityId: GLOBAL_INTEGRATIONS_KEY,
+    metadata: {
+      settings_key: GLOBAL_INTEGRATIONS_KEY,
+      platform_scope: "global",
+      rotated_field: "legacy_verify_token",
+    },
+  });
+
+  return {
+    regeneratedToken: nextToken,
+    settings: await getGlobalIntegrationsSettingsService(),
+  };
+}
+
+export async function listGlobalIntegrationsAuditHistoryService() {
+  const rows = await listPlatformAuditLogs({
+    entity: "platform_settings",
+    limit: 20,
+  });
+  return rows.filter((row: any) => {
+    const settingsKey = String(row?.metadata?.settings_key || "").trim();
+    return settingsKey === GLOBAL_INTEGRATIONS_KEY || String(row?.entity_id || "") === GLOBAL_INTEGRATIONS_KEY;
+  });
+}
+
+function resolveEmailServices(stored: EmailServicesStoredSettings) {
+  const smtpHost = String(stored.smtpHost || env.SMTP_HOST || "").trim();
+  const smtpPort = toSafeNumber(stored.smtpPort || env.SMTP_PORT, 587);
+  const smtpUser = String(stored.smtpUser || env.SMTP_USER || "").trim();
+  const smtpPass = decryptSecret(stored.smtpPass) || String(env.SMTP_PASS || "").trim();
+  const smtpFrom = String(stored.smtpFrom || env.SMTP_FROM || smtpUser || "").trim();
+
+  return {
+    status: {
+      configured: Boolean(smtpHost && smtpUser && smtpPass),
+      secure: smtpPort === 465,
+    },
+    previews: {
+      smtpHost: smtpHost || null,
+      smtpPort,
+      smtpUser: smtpUser || null,
+      smtpFrom: smtpFrom || null,
+      smtpPassConfigured: Boolean(smtpPass),
+    },
+    editable: {
+      smtpHost,
+      smtpPort,
+      smtpUser,
+      smtpFrom,
+    },
+  };
+}
+
+export async function getEmailServicesSettingsService() {
+  return resolveEmailServices(
+    sanitizeEmailSettings(await getPlatformSettingsRecord(EMAIL_SERVICES_KEY))
+  );
+}
+
+export async function updateEmailServicesSettingsService(input: {
+  userId: string;
+  smtpHost: string;
+  smtpPort: number | string;
+  smtpUser: string;
+  smtpFrom: string;
+  smtpPass?: string | null;
+}) {
+  const existing = sanitizeEmailSettings(await getPlatformSettingsRecord(EMAIL_SERVICES_KEY));
+  const next: EmailServicesStoredSettings = {
+    smtpHost: String(input.smtpHost || "").trim(),
+    smtpPort: toSafeNumber(input.smtpPort, 587),
+    smtpUser: String(input.smtpUser || "").trim(),
+    smtpFrom: String(input.smtpFrom || "").trim(),
+    smtpPass:
+      typeof input.smtpPass === "string" && input.smtpPass.trim()
+        ? encryptSecret(input.smtpPass.trim())
+        : existing.smtpPass || null,
+  };
+
+  await upsertPlatformSettingsRecord({
+    settingsKey: EMAIL_SERVICES_KEY,
+    settingsJson: next as unknown as Record<string, unknown>,
+    userId: input.userId,
+  });
+  await logAuditSafe({
+    userId: input.userId,
+    action: "update",
+    entity: "platform_settings",
+    entityId: EMAIL_SERVICES_KEY,
+    metadata: { settings_key: EMAIL_SERVICES_KEY, platform_scope: "global" },
+  });
+  return getEmailServicesSettingsService();
+}
+
+export async function testEmailServicesSettingsService() {
+  const settings = resolveEmailServices(
+    sanitizeEmailSettings(await getPlatformSettingsRecord(EMAIL_SERVICES_KEY))
+  );
+  if (!settings.status.configured) {
+    return {
+      ok: false,
+      detail: "SMTP host, user, or password is missing.",
+      checkedAt: new Date().toISOString(),
+    };
+  }
+
+  const stored = sanitizeEmailSettings(await getPlatformSettingsRecord(EMAIL_SERVICES_KEY));
+  const smtpPass = decryptSecret(stored.smtpPass) || String(env.SMTP_PASS || "").trim();
+  const transporter = nodemailer.createTransport({
+    host: settings.editable.smtpHost,
+    port: Number(settings.editable.smtpPort || 587),
+    secure: Number(settings.editable.smtpPort || 587) === 465,
+    auth: {
+      user: settings.editable.smtpUser,
+      pass: smtpPass,
+    },
+  });
+  await transporter.verify();
+  return {
+    ok: true,
+    detail: "SMTP connection verified successfully.",
+    checkedAt: new Date().toISOString(),
+  };
+}
+
+function resolveAiProviders(stored: AiProvidersStoredSettings) {
+  const defaultProvider = String(stored.defaultProvider || "openai").trim().toLowerCase();
+  const defaultModel = String(stored.defaultModel || stored.openaiModel || "gpt-5.4-mini").trim();
+  const openaiModel = String(stored.openaiModel || "gpt-5.4-mini").trim();
+  const geminiModel = String(stored.geminiModel || "gemini-1.5-pro").trim();
+  return {
+    status: {
+      openaiConfigured: Boolean(decryptSecret(stored.openaiApiKey)),
+      geminiConfigured: Boolean(decryptSecret(stored.geminiApiKey)),
+      defaultProvider,
+    },
+    editable: {
+      defaultProvider,
+      defaultModel,
+      openaiModel,
+      geminiModel,
+    },
+  };
+}
+
+export async function getAiProvidersSettingsService() {
+  return resolveAiProviders(
+    sanitizeAiSettings(await getPlatformSettingsRecord(AI_PROVIDERS_KEY))
+  );
+}
+
+export async function updateAiProvidersSettingsService(input: {
+  userId: string;
+  defaultProvider: string;
+  defaultModel: string;
+  openaiModel: string;
+  geminiModel: string;
+  openaiApiKey?: string | null;
+  geminiApiKey?: string | null;
+}) {
+  const existing = sanitizeAiSettings(await getPlatformSettingsRecord(AI_PROVIDERS_KEY));
+  const next: AiProvidersStoredSettings = {
+    defaultProvider: String(input.defaultProvider || "openai").trim().toLowerCase(),
+    defaultModel: String(input.defaultModel || "").trim(),
+    openaiModel: String(input.openaiModel || "").trim(),
+    geminiModel: String(input.geminiModel || "").trim(),
+    openaiApiKey:
+      typeof input.openaiApiKey === "string" && input.openaiApiKey.trim()
+        ? encryptSecret(input.openaiApiKey.trim())
+        : existing.openaiApiKey || null,
+    geminiApiKey:
+      typeof input.geminiApiKey === "string" && input.geminiApiKey.trim()
+        ? encryptSecret(input.geminiApiKey.trim())
+        : existing.geminiApiKey || null,
+  };
+  await upsertPlatformSettingsRecord({
+    settingsKey: AI_PROVIDERS_KEY,
+    settingsJson: next as unknown as Record<string, unknown>,
+    userId: input.userId,
+  });
+  await logAuditSafe({
+    userId: input.userId,
+    action: "update",
+    entity: "platform_settings",
+    entityId: AI_PROVIDERS_KEY,
+    metadata: { settings_key: AI_PROVIDERS_KEY, platform_scope: "global" },
+  });
+  return getAiProvidersSettingsService();
+}
+
+function resolveBillingWallet(stored: BillingWalletStoredSettings) {
+  return {
+    status: {
+      stripeConfigured: Boolean(stored.stripePublicKey && decryptSecret(stored.stripeSecretKey)),
+      razorpayConfigured: Boolean(stored.razorpayKeyId && decryptSecret(stored.razorpayKeySecret)),
+    },
+    editable: {
+      stripePublicKey: String(stored.stripePublicKey || "").trim(),
+      razorpayKeyId: String(stored.razorpayKeyId || "").trim(),
+      defaultCurrency: String(stored.defaultCurrency || "INR").trim().toUpperCase(),
+      walletAutoTopupDefaultEnabled: Boolean(stored.walletAutoTopupDefaultEnabled),
+      walletAutoTopupDefaultAmount: toSafeNumber(stored.walletAutoTopupDefaultAmount, 0),
+      walletLowBalanceThresholdDefault: toSafeNumber(stored.walletLowBalanceThresholdDefault, 0),
+    },
+  };
+}
+
+export async function getBillingWalletSettingsService() {
+  return resolveBillingWallet(
+    sanitizeBillingWalletSettings(await getPlatformSettingsRecord(BILLING_WALLET_KEY))
+  );
+}
+
+export async function updateBillingWalletSettingsService(input: {
+  userId: string;
+  stripePublicKey: string;
+  stripeSecretKey?: string | null;
+  razorpayKeyId: string;
+  razorpayKeySecret?: string | null;
+  defaultCurrency: string;
+  walletAutoTopupDefaultEnabled: boolean;
+  walletAutoTopupDefaultAmount: number | string;
+  walletLowBalanceThresholdDefault: number | string;
+}) {
+  const existing = sanitizeBillingWalletSettings(await getPlatformSettingsRecord(BILLING_WALLET_KEY));
+  const next: BillingWalletStoredSettings = {
+    stripePublicKey: String(input.stripePublicKey || "").trim(),
+    stripeSecretKey:
+      typeof input.stripeSecretKey === "string" && input.stripeSecretKey.trim()
+        ? encryptSecret(input.stripeSecretKey.trim())
+        : existing.stripeSecretKey || null,
+    razorpayKeyId: String(input.razorpayKeyId || "").trim(),
+    razorpayKeySecret:
+      typeof input.razorpayKeySecret === "string" && input.razorpayKeySecret.trim()
+        ? encryptSecret(input.razorpayKeySecret.trim())
+        : existing.razorpayKeySecret || null,
+    defaultCurrency: String(input.defaultCurrency || "INR").trim().toUpperCase(),
+    walletAutoTopupDefaultEnabled: Boolean(input.walletAutoTopupDefaultEnabled),
+    walletAutoTopupDefaultAmount: toSafeNumber(input.walletAutoTopupDefaultAmount, 0),
+    walletLowBalanceThresholdDefault: toSafeNumber(input.walletLowBalanceThresholdDefault, 0),
+  };
+  await upsertPlatformSettingsRecord({
+    settingsKey: BILLING_WALLET_KEY,
+    settingsJson: next as unknown as Record<string, unknown>,
+    userId: input.userId,
+  });
+  await logAuditSafe({
+    userId: input.userId,
+    action: "update",
+    entity: "platform_settings",
+    entityId: BILLING_WALLET_KEY,
+    metadata: { settings_key: BILLING_WALLET_KEY, platform_scope: "global" },
+  });
+  return getBillingWalletSettingsService();
+}

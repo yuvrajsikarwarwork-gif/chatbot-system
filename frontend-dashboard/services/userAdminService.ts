@@ -33,6 +33,11 @@ export const userAdminService = {
     return res.data;
   },
 
+  delete: async (id: string): Promise<PlatformUser> => {
+    const res = await apiClient.delete(`/users/${id}`);
+    return res.data;
+  },
+
   updateProfile: async (payload: { name: string }): Promise<PlatformUser> => {
     const res = await apiClient.put("/users/profile", payload);
     return res.data;

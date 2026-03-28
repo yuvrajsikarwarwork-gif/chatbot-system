@@ -1,0 +1,7 @@
+ALTER TABLE users
+  ADD COLUMN IF NOT EXISTS phone_number TEXT;
+
+ALTER TABLE workspaces
+  ADD COLUMN IF NOT EXISTS company_website TEXT,
+  ADD COLUMN IF NOT EXISTS industry TEXT,
+  ADD COLUMN IF NOT EXISTS tax_id TEXT;

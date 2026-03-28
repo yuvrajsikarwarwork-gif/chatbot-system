@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 
 import { useAuthStore } from "../store/authStore";
+import { getPermissionCandidates } from "../utils/permissionAliases";
 
 export type AppSection =
   | "dashboard"
@@ -37,10 +38,12 @@ export function useVisibility() {
   return useMemo(() => {
     const workspaceId = activeWorkspace?.workspace_id || null;
     const workspaceRole = resolvedAccess?.workspace_role || activeWorkspace?.role || null;
+    const supportAccess = Boolean(resolvedAccess?.support_access);
     const isPlatformOperator =
-      Boolean(resolvedAccess?.is_platform_operator) ||
-      user?.role === "super_admin" ||
-      user?.role === "developer";
+      !supportAccess &&
+      (Boolean(resolvedAccess?.is_platform_operator) ||
+        user?.role === "super_admin" ||
+        user?.role === "developer");
 
     const workspacePermissions =
       resolvedAccess?.workspace_permissions ||
@@ -52,34 +55,28 @@ export function useVisibility() {
 
     const canSeeNav = (section: AppSection) => readSection(section, "nav");
     const canViewPage = (section: AppSection) => readSection(section, "page");
+    const hasResolvedPermission = (permission: string) =>
+      getPermissionCandidates(permission).some((candidate) =>
+        Boolean(workspacePermissions?.[candidate]) ||
+        hasWorkspacePermission(workspaceId, candidate)
+      );
 
     return {
       workspaceId,
       workspaceRole,
+      isWorkspaceAdmin: workspaceRole === "workspace_admin",
       isPlatformOperator,
-      canManageWorkspace:
-        Boolean(workspacePermissions.manage_workspace) ||
-        hasWorkspacePermission(workspaceId, "manage_workspace"),
-      canManageUsers:
-        Boolean(workspacePermissions.manage_users) ||
-        hasWorkspacePermission(workspaceId, "manage_users"),
-      canManagePermissions:
-        Boolean(workspacePermissions.manage_permissions) ||
-        hasWorkspacePermission(workspaceId, "manage_permissions"),
-      canManageIntegrations:
-        Boolean(workspacePermissions.manage_integrations) ||
-        hasWorkspacePermission(workspaceId, "manage_integrations"),
-      canManageProject:
-        Boolean(workspacePermissions.manage_project) ||
-        hasWorkspacePermission(workspaceId, "manage_project"),
+      canManageWorkspace: hasResolvedPermission("manage_workspace"),
+      canManageUsers: hasResolvedPermission("manage_users"),
+      canManagePermissions: hasResolvedPermission("manage_permissions"),
+      canManageIntegrations: hasResolvedPermission("manage_integrations"),
+      canManageProject: hasResolvedPermission("manage_project"),
       canViewProjects: canViewPage("projects"),
       canViewCampaigns: canViewPage("campaigns"),
       canViewBots: canViewPage("bots"),
       canViewFlows: canViewPage("flows"),
       canViewConversations: canViewPage("inbox"),
-      canReplyConversations:
-        Boolean(workspacePermissions.reply_conversation) ||
-        hasWorkspacePermission(workspaceId, "reply_conversation"),
+      canReplyConversations: hasResolvedPermission("reply_conversation"),
       canViewLeads: canViewPage("leads"),
       canViewAnalytics: canViewPage("analytics"),
       canViewSupport: canViewPage("support") || canViewPage("tickets"),
@@ -87,7 +84,7 @@ export function useVisibility() {
       canViewBilling: canViewPage("billing"),
       activeProjectRole: resolvedAccess?.project_role || null,
       activeProjectId: resolvedAccess?.project_id || activeProject?.id || null,
-      supportAccess: Boolean(resolvedAccess?.support_access),
+      supportAccess,
       agentScope:
         resolvedAccess?.agent_scope || {
           projectIds: [],

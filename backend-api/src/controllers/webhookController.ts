@@ -16,6 +16,7 @@ import { updateMessageDeliveryStatusByExternalId } from "../models/messageModel"
 import { routeMessage } from "../services/messageRouter";
 import { decryptSecret } from "../utils/encryption";
 import { applyTemplateStatusUpdate } from "./templateController";
+import { normalizeWhatsAppPlatformUserId } from "../services/contactIdentityService";
 
 function getLegacyVerifyToken() {
   return process.env.WA_VERIFY_TOKEN || process.env.VERIFY_TOKEN;
@@ -161,6 +162,36 @@ async function handleTemplateStatusUpdates(req: Request, res: Response) {
   return res.sendStatus(200);
 }
 
+async function findGlobalMetaVerifyTokenMatch(token: string) {
+  const campaignChannelRes = await query(
+    `SELECT platform, config
+     FROM campaign_channels
+     WHERE platform IN ('whatsapp', 'facebook', 'instagram')`
+  );
+  for (const row of campaignChannelRes.rows) {
+    const decrypted = decryptSecret(row?.config?.verifyToken ?? null);
+    if (decrypted && decrypted === token) {
+      return decrypted;
+    }
+  }
+
+  const accountRes = await query(
+    `SELECT metadata
+     FROM platform_accounts
+     WHERE platform_type IN ('whatsapp', 'facebook', 'instagram')`
+  );
+  for (const row of accountRes.rows) {
+    const metadata =
+      row?.metadata && typeof row.metadata === "object" ? row.metadata : {};
+    const decrypted = decryptSecret((metadata as any)?.verifyToken ?? null);
+    if (decrypted && decrypted === token) {
+      return decrypted;
+    }
+  }
+
+  return null;
+}
+
 export const verifyWebhook = async (req: Request, res: Response) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
@@ -185,6 +216,9 @@ export const verifyWebhook = async (req: Request, res: Response) => {
     if (!verifyToken) {
       verifyToken = integration ? getIntegrationVerifyToken(integration) : null;
     }
+  } else if (typeof token === "string" && token) {
+    const matchedGlobalToken = await findGlobalMetaVerifyTokenMatch(token);
+    verifyToken = matchedGlobalToken || verifyToken;
   }
 
   if (mode === "subscribe" && token === verifyToken) {
@@ -253,7 +287,7 @@ export const receiveMessage = async (req: Request, res: Response) => {
   }
 
   const phoneNumberId = value?.metadata?.phone_number_id;
-  const from = message.from;
+  const from = normalizeWhatsAppPlatformUserId(message.from) || String(message.from || "").trim();
   const waName = value?.contacts?.[0]?.profile?.name || "User";
 
   try {

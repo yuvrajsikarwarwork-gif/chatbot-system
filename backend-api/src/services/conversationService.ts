@@ -34,6 +34,20 @@ import {
 } from "../models/conversationMetaModel";
 import { normalizePlatform } from "../utils/platform";
 
+let templateColumnSupport:
+  | {
+      botId: boolean;
+      workspaceId: boolean;
+      projectId: boolean;
+      campaignId: boolean;
+      content: boolean;
+      platformType: boolean;
+      metaTemplateId: boolean;
+      metaTemplateName: boolean;
+      status: boolean;
+    }
+  | null = null;
+
 function parseJsonLike(value: any) {
   if (!value) return null;
   if (typeof value === "object") return value;
@@ -43,6 +57,34 @@ function parseJsonLike(value: any) {
   } catch {
     return null;
   }
+}
+
+async function getTemplateColumnSupport() {
+  if (templateColumnSupport) {
+    return templateColumnSupport;
+  }
+
+  const res = await query(
+    `SELECT column_name
+     FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND table_name = 'templates'`
+  );
+
+  const columns = new Set(res.rows.map((row: any) => String(row.column_name || "").trim()));
+  templateColumnSupport = {
+    botId: columns.has("bot_id"),
+    workspaceId: columns.has("workspace_id"),
+    projectId: columns.has("project_id"),
+    campaignId: columns.has("campaign_id"),
+    content: columns.has("content"),
+    platformType: columns.has("platform_type"),
+    metaTemplateId: columns.has("meta_template_id"),
+    metaTemplateName: columns.has("meta_template_name"),
+    status: columns.has("status"),
+  };
+
+  return templateColumnSupport;
 }
 
 function normalizeTemplateStatus(value: unknown) {
@@ -560,6 +602,8 @@ export async function replyToConversationService(
       type: "interactive" as const,
       text: String(payload.text || "").trim() || "Choose an option",
       buttons,
+      entryKind: "manual_reply",
+      pricingCategory: "service",
     };
 
     await routeMessage(id, message, io);
@@ -606,33 +650,61 @@ export async function replyToConversationService(
   if (type === "template") {
     const templateName = String(payload.templateName || "").trim();
     const platform = normalizePlatform(String(conversation.platform || conversation.channel || "").trim());
+    const templateSupport = await getTemplateColumnSupport();
     const params: any[] = [templateName, platform];
     const scopeConditions: string[] = [];
+    const orderParts: string[] = [];
+    let platformCondition = "";
 
-    if (conversation.campaign_id) {
+    if (templateSupport.platformType) {
+      platformCondition = `AND (LOWER(COALESCE(NULLIF(TRIM(t.platform_type), ''), $2)) = $2 OR t.platform_type IS NULL)`;
+    }
+    if (templateSupport.campaignId && conversation.campaign_id) {
       params.push(conversation.campaign_id);
       scopeConditions.push(`t.campaign_id = $${params.length}`);
     }
-    if (conversation.project_id) {
+    if (templateSupport.projectId && conversation.project_id) {
       params.push(conversation.project_id);
       scopeConditions.push(`t.project_id = $${params.length}`);
     }
-    if (conversation.workspace_id) {
+    if (templateSupport.workspaceId && conversation.workspace_id) {
       params.push(conversation.workspace_id);
       scopeConditions.push(`t.workspace_id = $${params.length}`);
     }
-    if (conversation.bot_id) {
+    if (templateSupport.botId && conversation.bot_id) {
       params.push(conversation.bot_id);
       scopeConditions.push(`t.bot_id = $${params.length}`);
+    }
+    if (templateSupport.status) {
+      orderParts.push(
+        `CASE WHEN LOWER(COALESCE(NULLIF(TRIM(t.status), ''), 'pending')) = 'approved' THEN 0 ELSE 1 END`
+      );
+    }
+    if (templateSupport.metaTemplateId || templateSupport.metaTemplateName) {
+      const metaIdentityChecks = [
+        templateSupport.metaTemplateId
+          ? `NULLIF(TRIM(COALESCE(t.meta_template_id, '')), '') IS NOT NULL`
+          : null,
+        templateSupport.metaTemplateName
+          ? `NULLIF(TRIM(COALESCE(t.meta_template_name, '')), '') IS NOT NULL`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(" OR ");
+      if (metaIdentityChecks) {
+        orderParts.push(`CASE WHEN (${metaIdentityChecks}) THEN 0 ELSE 1 END`);
+      }
     }
 
     const templateRes = await query(
       `SELECT t.*
        FROM templates t
        WHERE t.name = $1
-         AND (LOWER(COALESCE(NULLIF(TRIM(t.platform_type), ''), $2)) = $2 OR t.platform_type IS NULL)
+         ${platformCondition}
          ${scopeConditions.length ? `AND (${scopeConditions.join(" OR ")})` : ""}
-       ORDER BY t.created_at DESC
+       ORDER BY
+         ${orderParts.join(", ")}${orderParts.length ? "," : ""}
+         t.created_at DESC
        LIMIT 1`,
       params
     );
@@ -675,6 +747,15 @@ export async function replyToConversationService(
       languageCode: String(template.language || payload.languageCode || "en_US"),
       templateContent: template.content,
       templateVariables: manualTemplateVariables,
+      metaTemplateId: template.meta_template_id || null,
+      metaTemplateName: template.meta_template_name || null,
+      pricingCategory: String(template.category || "marketing").trim().toLowerCase(),
+      entryKind: "manual_reply",
+    });
+  } else {
+    Object.assign(message, {
+      entryKind: "manual_reply",
+      pricingCategory: "service",
     });
   }
 
