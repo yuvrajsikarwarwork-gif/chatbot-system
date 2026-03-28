@@ -200,7 +200,7 @@ export default function UsersAccessMembersPage() {
           <div className="grid gap-6 xl:grid-cols-[360px_1fr]">
             <section className="rounded-[1.5rem] border border-[var(--line)] bg-[var(--surface)] p-6 shadow-sm">
               <div className="mb-5 flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-900 text-white">
+                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary text-white">
                   <Plus size={18} />
                 </div>
                 <div>
@@ -215,7 +215,7 @@ export default function UsersAccessMembersPage() {
 
               <div className="space-y-3">
                 <input
-                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none"
+                  className="w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary"
                   placeholder="Existing user id"
                   value={form.userId}
                   onChange={(event) =>
@@ -223,7 +223,7 @@ export default function UsersAccessMembersPage() {
                   }
                 />
                 <input
-                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none"
+                  className="w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary"
                   placeholder="Invite email"
                   value={form.email}
                   onChange={(event) =>
@@ -231,7 +231,7 @@ export default function UsersAccessMembersPage() {
                   }
                 />
                 <select
-                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none"
+                  className="w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary"
                   value={form.role}
                   onChange={(event) =>
                     setForm((current) => ({ ...current, role: event.target.value }))
@@ -244,7 +244,7 @@ export default function UsersAccessMembersPage() {
                   ))}
                 </select>
                 <select
-                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none"
+                  className="w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary"
                   value={form.status}
                   onChange={(event) =>
                     setForm((current) => ({ ...current, status: event.target.value }))
@@ -272,7 +272,7 @@ export default function UsersAccessMembersPage() {
                     type="button"
                     onClick={handleSave}
                     disabled={saving}
-                    className="flex-1 rounded-2xl bg-slate-900 px-4 py-3 text-[11px] font-black uppercase tracking-[0.2em] text-white disabled:opacity-60"
+                    className="flex-1 rounded-2xl bg-primary px-4 py-3 text-[11px] font-black uppercase tracking-[0.2em] text-white disabled:opacity-60"
                   >
                     {saving ? "Saving..." : editingMemberId ? "Save member" : "Add member"}
                   </button>
@@ -332,7 +332,7 @@ export default function UsersAccessMembersPage() {
                           <button
                             type="button"
                             onClick={() => handleRemove(member)}
-                            className="rounded-xl border border-rose-200 bg-white px-3 py-2 text-[10px] font-black uppercase tracking-[0.18em] text-rose-700"
+                            className="rounded-xl border border-red-500/30 bg-transparent px-3 py-2 text-[10px] font-black uppercase tracking-[0.18em] text-red-500 hover:bg-red-500/10 hover:border-red-500/50"
                           >
                             <span className="inline-flex items-center gap-2">
                               <Trash2 size={12} />

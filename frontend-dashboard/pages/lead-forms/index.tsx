@@ -260,7 +260,7 @@ export default function LeadFormsPage() {
                 <button
                   type="button"
                   onClick={resetDraft}
-                  className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-black uppercase tracking-[0.16em] text-slate-700 transition hover:bg-slate-50"
+                  className="inline-flex items-center gap-2 rounded-xl border border-border bg-transparent px-3 py-2 text-[11px] font-black uppercase tracking-[0.16em] text-foreground transition hover:bg-primary-fade hover:text-primary hover:border-primary/30"
                 >
                   <Plus size={14} />
                   New
@@ -283,8 +283,8 @@ export default function LeadFormsPage() {
                         onClick={() => setSelectedFormId(form.id)}
                         className={`w-full rounded-2xl border px-4 py-3 text-left transition ${
                           selectedFormId === form.id
-                            ? "border-slate-900 bg-slate-900 text-white"
-                            : "border-slate-200 bg-white text-slate-800 hover:bg-slate-50"
+                            ? "border-primary bg-primary text-white"
+                            : "border-border bg-card text-foreground hover:bg-primary-fade hover:text-primary hover:border-primary/30"
                         }`}
                       >
                         <div className="text-sm font-bold">{form.name}</div>
@@ -358,7 +358,7 @@ export default function LeadFormsPage() {
                     <button
                       type="button"
                       onClick={addField}
-                      className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-black uppercase tracking-[0.16em] text-slate-700 transition hover:bg-slate-50"
+                      className="inline-flex items-center gap-2 rounded-xl border border-border bg-transparent px-3 py-2 text-[11px] font-black uppercase tracking-[0.16em] text-foreground transition hover:bg-primary-fade hover:text-primary hover:border-primary/30"
                     >
                       <Plus size={14} />
                       Add Field
@@ -375,7 +375,7 @@ export default function LeadFormsPage() {
                           key={preset.fieldKey}
                           type="button"
                           onClick={() => addStandardField(preset)}
-                          className="rounded-full border border-slate-200 bg-white px-3 py-2 text-[11px] font-black uppercase tracking-[0.14em] text-slate-700 transition hover:bg-slate-100"
+                          className="rounded-full border border-border bg-transparent px-3 py-2 text-[11px] font-black uppercase tracking-[0.14em] text-foreground transition hover:bg-primary-fade hover:text-primary hover:border-primary/30"
                         >
                           {preset.label}
                         </button>
@@ -390,12 +390,12 @@ export default function LeadFormsPage() {
                           value={field.fieldKey}
                           onChange={(event) => updateField(index, "fieldKey", event.target.value)}
                           placeholder="field_key"
-                          className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-mono text-slate-700 outline-none"
+                          className="rounded-xl border border-border bg-background px-4 py-3 text-sm font-mono text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary"
                         />
                         <select
                           value={field.fieldType}
                           onChange={(event) => updateField(index, "fieldType", event.target.value)}
-                          className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none"
+                          className="rounded-xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary"
                         >
                           {[...STANDARD_FIELD_PRESETS.map((item) => ({ label: item.label, value: item.fieldType })), ...CUSTOM_FIELD_TYPES]
                             .filter((item, itemIndex, arr) => arr.findIndex((candidate) => candidate.value === item.value) === itemIndex)
@@ -409,9 +409,9 @@ export default function LeadFormsPage() {
                           value={field.questionLabel}
                           onChange={(event) => updateField(index, "questionLabel", event.target.value)}
                           placeholder="Question label"
-                          className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none"
+                          className="rounded-xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary"
                         />
-                        <label className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-[11px] font-black uppercase tracking-[0.16em] text-slate-700">
+                        <label className="inline-flex items-center justify-center gap-2 rounded-xl border border-border bg-transparent px-4 py-3 text-[11px] font-black uppercase tracking-[0.16em] text-foreground">
                           <input
                             type="checkbox"
                             checked={Boolean(field.isRequired)}
@@ -442,7 +442,7 @@ export default function LeadFormsPage() {
                             )
                           }
                           placeholder="Dropdown options separated by commas"
-                          className="mt-3 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none"
+                          className="mt-3 w-full rounded-xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary"
                         />
                       ) : null}
                     </div>

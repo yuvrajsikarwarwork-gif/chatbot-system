@@ -401,11 +401,11 @@ export default function SettingsPage() {
       <div className="mx-auto max-w-6xl space-y-6">
         {activeWorkspace ? <WorkspaceStatusBanner workspace={activeWorkspace} /> : null}
 
-        <section className="rounded-[1.25rem] border border-[var(--line)] bg-[var(--surface)] p-5 shadow-[var(--shadow-soft)]">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">
+        <section className="rounded-[1.25rem] border border-border bg-card p-5 shadow-[var(--shadow-soft)] transition-colors duration-300">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted">
             Settings
           </div>
-          <h1 className="mt-2 text-[1.35rem] font-semibold tracking-tight text-[var(--text)]">
+          <h1 className="mt-2 text-[1.35rem] font-semibold tracking-tight text-foreground">
             {isPlatformWithoutWorkspace ? "Platform account settings" : "Account and workspace settings"}
           </h1>
           {canViewWorkspaceSettings && settingsTabs.length > 0 ? (
@@ -415,45 +415,45 @@ export default function SettingsPage() {
 
         {isPlatformWithoutWorkspace ? (
           <div className="grid gap-4 md:grid-cols-2">
-            <div className="rounded-[1.25rem] border border-[var(--line)] bg-[var(--surface)] px-5 py-4">
-              <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
+            <div className="rounded-[1.25rem] border border-border bg-card px-5 py-4">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted">
                 User
               </div>
-              <div className="mt-2 text-sm font-semibold text-[var(--text)]">{user?.name || "Unnamed User"}</div>
-              <div className="mt-1 text-xs text-[var(--muted)]">{user?.role || "user"}</div>
+              <div className="mt-2 text-sm font-semibold text-foreground">{user?.name || "Unnamed User"}</div>
+              <div className="mt-1 text-xs text-muted">{user?.role || "user"}</div>
             </div>
-            <div className="rounded-[1.25rem] border border-[var(--line)] bg-[var(--surface)] px-5 py-4">
-              <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
+            <div className="rounded-[1.25rem] border border-border bg-card px-5 py-4">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted">
                 Scope
               </div>
-              <div className="mt-2 text-sm font-semibold text-[var(--text)]">Platform only</div>
-              <div className="mt-1 text-xs text-[var(--muted)]">
+              <div className="mt-2 text-sm font-semibold text-foreground">Platform only</div>
+              <div className="mt-1 text-xs text-muted">
                 No workspace is attached to this account session.
               </div>
             </div>
           </div>
         ) : (
           <div className="grid gap-4 md:grid-cols-3">
-            <div className="rounded-[1.25rem] border border-[var(--line)] bg-[var(--surface)] px-5 py-4">
-              <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
+            <div className="rounded-[1.25rem] border border-border bg-card px-5 py-4">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted">
                 User
               </div>
-              <div className="mt-2 text-sm font-semibold text-[var(--text)]">{user?.name || "Unnamed User"}</div>
-              <div className="mt-1 text-xs text-[var(--muted)]">{user?.role || "user"}</div>
+              <div className="mt-2 text-sm font-semibold text-foreground">{user?.name || "Unnamed User"}</div>
+              <div className="mt-1 text-xs text-muted">{user?.role || "user"}</div>
             </div>
-            <div className="rounded-[1.25rem] border border-[var(--line)] bg-[var(--surface)] px-5 py-4">
-              <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
+            <div className="rounded-[1.25rem] border border-border bg-card px-5 py-4">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted">
                 Active Workspace
               </div>
-              <div className="mt-2 text-sm font-semibold text-[var(--text)]">{activeWorkspace?.name || "Not linked"}</div>
-              <div className="mt-1 text-xs text-[var(--muted)]">{activeWorkspace?.status || "n/a"}</div>
+              <div className="mt-2 text-sm font-semibold text-foreground">{activeWorkspace?.name || "Not linked"}</div>
+              <div className="mt-1 text-xs text-muted">{activeWorkspace?.status || "n/a"}</div>
             </div>
-            <div className="rounded-[1.25rem] border border-[var(--line)] bg-[var(--surface)] px-5 py-4">
-              <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
+            <div className="rounded-[1.25rem] border border-border bg-card px-5 py-4">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted">
                 Active Plan
               </div>
-              <div className="mt-2 text-sm font-semibold text-[var(--text)]">{activePlan?.name || "Starter"}</div>
-              <div className="mt-1 text-xs text-[var(--muted)]">INR {activePlan?.monthly_price_inr || 0}/mo</div>
+              <div className="mt-2 text-sm font-semibold text-foreground">{activePlan?.name || "Starter"}</div>
+              <div className="mt-1 text-xs text-muted">INR {activePlan?.monthly_price_inr || 0}/mo</div>
             </div>
           </div>
         )}
@@ -467,32 +467,32 @@ export default function SettingsPage() {
         ) : null}
 
         {isPlatformWithoutWorkspace ? (
-          <section className="rounded-[1.5rem] border border-[var(--line)] bg-[var(--surface)] p-6 shadow-sm">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">
+          <section className="rounded-[1.5rem] border border-border bg-card p-6 shadow-sm">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted">
               Platform Account
             </div>
-            <h2 className="mt-3 text-[1.35rem] font-semibold tracking-tight text-[var(--text)]">
+            <h2 className="mt-3 text-[1.35rem] font-semibold tracking-tight text-foreground">
               Platform account controls
             </h2>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--muted)]">
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-muted">
               This page stays platform-only for super admin and developer sessions. Workspace internals, plans, and routing controls are hidden until you explicitly enter a workspace management route.
             </p>
             <div className="mt-5 grid gap-3 sm:grid-cols-3">
               <a
                 href="/workspaces"
-                className="rounded-2xl border border-[var(--line)] bg-[var(--surface-strong)] px-4 py-3 text-sm text-[var(--text)] transition hover:border-[var(--line-strong)]"
+                className="rounded-2xl border border-border bg-transparent px-4 py-3 text-sm text-foreground transition hover:bg-primary-fade hover:text-primary hover:border-primary/30"
               >
                 Manage Workspaces
               </a>
               <a
                 href="/users-access/platform-users"
-                className="rounded-2xl border border-[var(--line)] bg-[var(--surface-strong)] px-4 py-3 text-sm text-[var(--text)] transition hover:border-[var(--line-strong)]"
+                className="rounded-2xl border border-border bg-transparent px-4 py-3 text-sm text-foreground transition hover:bg-primary-fade hover:text-primary hover:border-primary/30"
               >
                 Manage Platform Users
               </a>
               <a
                 href="/users-access/roles"
-                className="rounded-2xl border border-[var(--line)] bg-[var(--surface-strong)] px-4 py-3 text-sm text-[var(--text)] transition hover:border-[var(--line-strong)]"
+                className="rounded-2xl border border-border bg-transparent px-4 py-3 text-sm text-foreground transition hover:bg-primary-fade hover:text-primary hover:border-primary/30"
               >
                 Manage Permissions
               </a>
@@ -501,16 +501,16 @@ export default function SettingsPage() {
         ) : null}
 
         {!isPlatformWithoutWorkspace ? (
-        <section className="rounded-[1.5rem] border border-[var(--line)] bg-[var(--surface)] p-6 shadow-sm">
+        <section className="rounded-[1.5rem] border border-border bg-card p-6 shadow-sm">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <div className="flex items-center gap-2 text-sm font-semibold text-[var(--text)]">
+              <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
                 <MessageSquareMore size={16} />
                 Workspace conversation settings
               </div>
             </div>
             {canViewWorkspaceSettings ? (
-              <div className="rounded-full border border-[var(--line)] bg-[var(--surface-strong)] px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">
+              <div className="rounded-full border border-border bg-primary-fade px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">
                 {canManageSettings ? "Editable" : "Read only"}
               </div>
             ) : null}
@@ -808,7 +808,7 @@ export default function SettingsPage() {
                   type="button"
                   onClick={handleSave}
                   disabled={!canManageSettings || saving || loading}
-                  className="w-full rounded-2xl bg-slate-900 px-5 py-3 text-[11px] font-black uppercase tracking-[0.2em] text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                  className="w-full rounded-2xl bg-primary px-5 py-3 text-[11px] font-black uppercase tracking-[0.2em] text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:bg-muted"
                 >
                   {saving ? "Saving..." : "Save Conversation Settings"}
                 </button>

@@ -77,27 +77,24 @@ export default function EditBotModal({
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-      <div
-        className="absolute inset-0 bg-[rgba(6,8,20,0.55)] backdrop-blur-md"
-        onClick={onClose}
-      />
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
 
-      <div className="relative z-10 max-h-[70vh] w-full max-w-lg overflow-hidden rounded-[2rem] border border-[var(--glass-border)] bg-[var(--glass-surface)] shadow-[var(--shadow-glass)] backdrop-blur-2xl animate-in zoom-in-95 duration-200">
-        <div className="flex items-center justify-between border-b border-[var(--glass-border)] bg-[var(--glass-surface-strong)] p-6">
+      <div className="relative z-10 max-h-[70vh] w-full max-w-lg overflow-hidden rounded-[2rem] border border-border bg-card shadow-2xl animate-in zoom-in-95 duration-200">
+        <div className="flex items-center justify-between border-b border-border bg-card p-6">
           <div>
-            <h2 className="font-black uppercase tracking-tighter text-[var(--text)]">
+            <h2 className="font-black uppercase tracking-tighter text-foreground">
               Edit Instance
             </h2>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted)]">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-muted">
               ID: {bot.id}
             </p>
           </div>
 
           <button
             onClick={onClose}
-            className="rounded-full p-2 transition-colors hover:bg-[var(--glass-surface)]"
+            className="rounded-full p-2 transition-colors hover:bg-primary-fade"
           >
-            <X size={20} className="text-[var(--muted)]" />
+            <X size={20} className="text-muted" />
           </button>
         </div>
 
@@ -106,7 +103,7 @@ export default function EditBotModal({
           className="max-h-[70vh] space-y-5 overflow-y-auto p-8"
         >
           <div className="space-y-1">
-            <label className="text-[10px] font-black uppercase tracking-widest text-[var(--muted)]">
+            <label className="text-[10px] font-black uppercase tracking-widest text-muted">
               Instance Name
             </label>
 
@@ -114,13 +111,13 @@ export default function EditBotModal({
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full rounded-2xl border border-[var(--glass-border)] bg-[var(--glass-surface-strong)] px-5 py-3 text-sm font-bold text-[var(--text)] outline-none transition-all focus:border-[var(--line-strong)]"
+              className="w-full rounded-2xl border border-border bg-background px-5 py-3 text-sm font-bold text-foreground outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary"
               required
             />
           </div>
 
           <div className="space-y-1">
-            <label className="text-[10px] font-black uppercase tracking-widest text-[var(--muted)]">
+            <label className="text-[10px] font-black uppercase tracking-widest text-muted">
               Trigger Keywords
             </label>
 
@@ -128,18 +125,18 @@ export default function EditBotModal({
               type="text"
               value={keywords}
               onChange={(e) => setKeywords(e.target.value)}
-              className="w-full rounded-2xl border border-[var(--glass-border)] bg-[var(--glass-surface-strong)] px-5 py-3 text-sm font-bold text-[var(--text)] outline-none transition-all focus:border-[var(--line-strong)]"
+              className="w-full rounded-2xl border border-border bg-background px-5 py-3 text-sm font-bold text-foreground outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary"
             />
           </div>
 
           <div className="space-y-1">
-            <label className="text-[10px] font-black uppercase tracking-widest text-[var(--muted)]">
+            <label className="text-[10px] font-black uppercase tracking-widest text-muted">
               Project
             </label>
             <select
               value={projectId}
               onChange={(e) => setProjectId(e.target.value)}
-              className="w-full rounded-2xl border border-[var(--glass-border)] bg-[var(--glass-surface-strong)] px-5 py-3 text-sm font-bold text-[var(--text)] outline-none transition-all focus:border-[var(--line-strong)]"
+              className="w-full rounded-2xl border border-border bg-background px-5 py-3 text-sm font-bold text-foreground outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary"
             >
               <option value="">No project</option>
               {projects.map((project) => (
@@ -150,10 +147,10 @@ export default function EditBotModal({
             </select>
           </div>
 
-          <div className="flex gap-3 rounded-2xl border border-amber-300/30 bg-amber-500/10 p-4">
-            <Info className="shrink-0 text-amber-300" size={18} />
+          <div className="flex gap-3 rounded-2xl border border-primary/20 bg-primary-fade p-4">
+            <Info className="shrink-0 text-primary" size={18} />
 
-            <p className="text-[10px] font-medium text-[var(--text)]">
+            <p className="text-[10px] font-medium text-foreground">
               Platform credentials now belong to campaign channels. Editing a bot
               changes reusable logic metadata and its project attachment.
             </p>
@@ -162,7 +159,7 @@ export default function EditBotModal({
           <button
             type="submit"
             disabled={isSaving}
-            className="flex w-full items-center justify-center gap-2 rounded-2xl border border-[rgba(129,140,248,0.35)] bg-[linear-gradient(135deg,var(--accent),var(--accent-strong))] py-4 text-xs font-black uppercase tracking-widest text-white shadow-[0_18px_30px_var(--accent-glow)] transition-all hover:-translate-y-0.5"
+            className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary py-4 text-xs font-black uppercase tracking-widest text-white transition-opacity hover:opacity-90"
           >
             {isSaving ? (
               <Loader2 size={16} className="animate-spin" />

@@ -81,18 +81,18 @@ export default function BotCreationModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(6,8,20,0.55)] backdrop-blur-md">
-      <div className="w-full max-w-lg overflow-hidden rounded-[2rem] border border-[var(--glass-border)] bg-[var(--glass-surface)] shadow-[var(--shadow-glass)] backdrop-blur-2xl">
-        <div className="flex items-center justify-between border-b border-[var(--glass-border)] bg-[var(--glass-surface-strong)] p-6">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+      <div className="w-full max-w-lg overflow-hidden rounded-[2rem] border border-border bg-card shadow-2xl">
+        <div className="flex items-center justify-between border-b border-border bg-card p-6">
           <div>
-            <h2 className="text-lg font-black uppercase tracking-tight text-[var(--text)]">
+            <h2 className="text-lg font-black uppercase tracking-tight text-foreground">
               Provision Agent
             </h2>
-            <p className="mt-0.5 text-[10px] font-bold uppercase tracking-widest text-[var(--muted)]">
+            <p className="mt-0.5 text-[10px] font-bold uppercase tracking-widest text-muted">
               Reusable Bot Logic
             </p>
           </div>
-          <button onClick={onClose} className="text-[var(--muted)] transition hover:text-[var(--text)]">
+          <button onClick={onClose} className="text-muted transition hover:text-foreground">
             <X size={20} />
           </button>
         </div>
@@ -100,12 +100,12 @@ export default function BotCreationModal({
         <form onSubmit={handleSubmit} className="space-y-5 p-8">
           <div className="space-y-4">
             <div>
-              <label className="mb-1.5 block text-[10px] font-black uppercase tracking-widest text-[var(--muted)]">
+              <label className="mb-1.5 block text-[10px] font-black uppercase tracking-widest text-muted">
                 Agent Name
               </label>
               <input
                 required
-                className="w-full rounded-xl border border-[var(--glass-border)] bg-[var(--glass-surface-strong)] p-3 text-sm font-bold text-[var(--text)] outline-none focus:border-[var(--line-strong)]"
+                className="w-full rounded-xl border border-border bg-background p-3 text-sm font-bold text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary"
                 value={formData.bot_name}
                 onChange={(e) =>
                   setFormData({ ...formData, bot_name: e.target.value })
@@ -114,13 +114,13 @@ export default function BotCreationModal({
             </div>
 
             <div>
-              <label className="mb-1.5 block text-[10px] font-black uppercase tracking-widest text-[var(--muted)]">
+              <label className="mb-1.5 block text-[10px] font-black uppercase tracking-widest text-muted">
                 Trigger Keywords (Comma Separated)
               </label>
               <input
                 required
                 placeholder="e.g., support, help, sales"
-                className="w-full rounded-xl border border-[var(--glass-border)] bg-[var(--glass-surface-strong)] p-3 text-sm font-bold text-[var(--text)] outline-none focus:border-[var(--line-strong)]"
+                className="w-full rounded-xl border border-border bg-background p-3 text-sm font-bold text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary"
                 value={formData.trigger_keywords}
                 onChange={(e) =>
                   setFormData({ ...formData, trigger_keywords: e.target.value })
@@ -128,15 +128,15 @@ export default function BotCreationModal({
               />
             </div>
 
-            <div className="rounded-2xl border border-[var(--glass-border)] bg-[var(--glass-surface-strong)] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.22)]">
-              <div className="text-[10px] font-black uppercase tracking-widest text-[var(--muted)]">
+            <div className="rounded-2xl border border-border bg-background p-4">
+              <div className="text-[10px] font-black uppercase tracking-widest text-muted">
                 Workspace Context
               </div>
-              <div className="mt-2 text-sm font-semibold text-[var(--text)]">
+              <div className="mt-2 text-sm font-semibold text-foreground">
                 {activeWorkspace?.workspace_name || activeWorkspace?.workspace_id || "Personal"}
               </div>
               <div className="mt-3">
-                <label className="mb-1.5 block text-[10px] font-black uppercase tracking-widest text-[var(--muted)]">
+                <label className="mb-1.5 block text-[10px] font-black uppercase tracking-widest text-muted">
                   Project
                 </label>
                 <select
@@ -145,7 +145,7 @@ export default function BotCreationModal({
                     setFormData({ ...formData, project_id: e.target.value })
                   }
                   disabled={!activeWorkspace?.workspace_id || loadingProjects}
-                  className="w-full rounded-xl border border-[var(--glass-border)] bg-[var(--glass-surface)] p-3 text-sm font-bold text-[var(--text)] outline-none focus:border-[var(--line-strong)] disabled:cursor-not-allowed disabled:opacity-60"
+                  className="w-full rounded-xl border border-border bg-background p-3 text-sm font-bold text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <option value="">
                     {loadingProjects
@@ -163,7 +163,7 @@ export default function BotCreationModal({
               </div>
             </div>
 
-            <div className="rounded-2xl border border-cyan-300/25 bg-cyan-500/10 p-4 text-[10px] font-medium text-[var(--text)]">
+            <div className="rounded-2xl border border-primary/20 bg-primary-fade p-4 text-[10px] font-medium text-foreground">
               Platform credentials are no longer stored on the bot. Create a campaign
               channel to connect this bot to WhatsApp, website, Instagram, Facebook,
               API, or Telegram.
@@ -174,14 +174,14 @@ export default function BotCreationModal({
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 rounded-xl border border-[var(--glass-border)] bg-[var(--glass-surface-strong)] px-4 py-3 text-xs font-black text-[var(--muted)]"
+              className="flex-1 rounded-xl border border-border bg-transparent px-4 py-3 text-xs font-black text-foreground transition-all hover:bg-primary-fade hover:text-primary hover:border-primary/30"
             >
               CANCEL
             </button>
             <button
               type="submit"
               disabled={loading || !activeWorkspace?.workspace_id || !(formData.project_id || activeProject?.id)}
-              className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-[rgba(129,140,248,0.35)] bg-[linear-gradient(135deg,var(--accent),var(--accent-strong))] px-4 py-3 text-xs font-black text-white shadow-[0_18px_30px_var(--accent-glow)]"
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-xs font-black text-white transition-opacity hover:opacity-90"
             >
               {loading ? <Clock size={14} className="animate-spin" /> : <Rocket size={14} />}{" "}
               LAUNCH

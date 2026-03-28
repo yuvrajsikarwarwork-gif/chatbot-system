@@ -181,7 +181,7 @@ export default function UsersAccessAgentScopePage() {
                   Member
                 </label>
                 <select
-                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none"
+                  className="w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary"
                   value={selectedMemberId}
                   onChange={(event) => setSelectedMemberId(event.target.value)}
                 >
@@ -203,7 +203,7 @@ export default function UsersAccessAgentScopePage() {
                     {projects.map((project) => (
                       <label
                         key={project.id}
-                        className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
+                        className="flex items-center gap-3 rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground"
                       >
                         <input
                           type="checkbox"
@@ -229,7 +229,7 @@ export default function UsersAccessAgentScopePage() {
                     {visibleCampaigns.map((campaign) => (
                       <label
                         key={campaign.id}
-                        className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
+                        className="flex items-center gap-3 rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground"
                       >
                         <input
                           type="checkbox"
@@ -257,7 +257,7 @@ export default function UsersAccessAgentScopePage() {
                     {PLATFORM_OPTIONS.map((platform) => (
                       <label
                         key={platform}
-                        className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
+                        className="flex items-center gap-3 rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground"
                       >
                         <input
                           type="checkbox"
@@ -280,7 +280,7 @@ export default function UsersAccessAgentScopePage() {
                     Channel ids and skills
                   </div>
                   <textarea
-                    className="mt-3 min-h-[88px] w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none"
+                    className="mt-3 min-h-[88px] w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary"
                     placeholder="Comma-separated channel ids"
                     value={scope.channelIds.join(", ")}
                     onChange={(event) =>
@@ -294,7 +294,7 @@ export default function UsersAccessAgentScopePage() {
                     }
                   />
                   <textarea
-                    className="mt-3 min-h-[88px] w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none"
+                    className="mt-3 min-h-[88px] w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary"
                     placeholder="Comma-separated skills"
                     value={skills}
                     onChange={(event) => setSkills(event.target.value)}
@@ -306,7 +306,7 @@ export default function UsersAccessAgentScopePage() {
                 type="button"
                 disabled={!selectedMember || saving || loading}
                 onClick={handleSave}
-                className="rounded-2xl bg-slate-900 px-4 py-3 text-[11px] font-black uppercase tracking-[0.2em] text-white disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded-2xl bg-primary px-4 py-3 text-[11px] font-black uppercase tracking-[0.2em] text-white disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {saving ? "Saving scope..." : "Save agent scope"}
               </button>

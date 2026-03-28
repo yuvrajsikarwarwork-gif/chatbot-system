@@ -138,9 +138,9 @@ export default function ProjectOverviewPage() {
           <div className="grid gap-6 xl:grid-cols-[420px_1fr]">
             <section className="rounded-[1.5rem] border border-[var(--line)] bg-[var(--surface)] p-6 shadow-sm">
               <div className="space-y-4">
-                <input className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none" value={form.name} disabled={!canManageSelectedProject || loading} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} />
-                <textarea className="min-h-[120px] w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none" value={form.description} disabled={!canManageSelectedProject || loading} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} />
-                <select className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none" value={form.status} disabled={!canManageSelectedProject || loading} onChange={(event) => setForm((current) => ({ ...current, status: event.target.value }))}>
+                <input className="w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary" value={form.name} disabled={!canManageSelectedProject || loading} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} />
+                <textarea className="min-h-[120px] w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary" value={form.description} disabled={!canManageSelectedProject || loading} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} />
+                <select className="w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary" value={form.status} disabled={!canManageSelectedProject || loading} onChange={(event) => setForm((current) => ({ ...current, status: event.target.value }))}>
                   <option value="active">active</option>
                   <option value="paused">paused</option>
                   <option value="archived">archived</option>

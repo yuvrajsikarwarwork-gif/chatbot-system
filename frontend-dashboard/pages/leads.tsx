@@ -193,7 +193,7 @@ export default function LeadsPage() {
           <div className="rounded-[1.5rem] border border-border bg-card p-4 shadow-sm transition-colors duration-300">
             <div className="space-y-4">
               <div className="grid gap-3 xl:grid-cols-[220px_1fr_auto]">
-                <select className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm" value={filters.platform} onChange={(e) => setFilters((p) => ({ ...p, platform: e.target.value, campaignId: "", channelId: "", entryPointId: "", flowId: "", listId: "", leadFormId: "" }))}>
+                <select className="rounded-xl border border-border bg-background px-4 py-3 text-sm text-foreground" value={filters.platform} onChange={(e) => setFilters((p) => ({ ...p, platform: e.target.value, campaignId: "", channelId: "", entryPointId: "", flowId: "", listId: "", leadFormId: "" }))}>
                   <option value="">All platforms</option>
                   {PLATFORMS.map((p) => <option key={p} value={p}>{fmtPlatform(p)}</option>)}
                 </select>
@@ -238,11 +238,11 @@ export default function LeadsPage() {
                     <option value="">All lead forms</option>
                     {leadForms.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
                   </select>
-                  <select className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm" value={filters.channelId} onChange={(e) => setFilters((p) => ({ ...p, channelId: e.target.value, entryPointId: "", listId: "" }))} disabled={!filters.campaignId}>
+                  <select className="rounded-xl border border-border bg-background px-4 py-3 text-sm text-foreground" value={filters.channelId} onChange={(e) => setFilters((p) => ({ ...p, channelId: e.target.value, entryPointId: "", listId: "" }))} disabled={!filters.campaignId}>
                     <option value="">All channels</option>
                     {availableChannels.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
-                  <select className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm" value={filters.entryPointId} onChange={(e) => setFilters((p) => ({ ...p, entryPointId: e.target.value, listId: "" }))} disabled={!filters.campaignId}>
+                  <select className="rounded-xl border border-border bg-background px-4 py-3 text-sm text-foreground" value={filters.entryPointId} onChange={(e) => setFilters((p) => ({ ...p, entryPointId: e.target.value, listId: "" }))} disabled={!filters.campaignId}>
                     <option value="">All entry points</option>
                     {availableEntryPoints.map((e: any) => <option key={e.id} value={e.id}>{e.name}</option>)}
                   </select>
@@ -259,7 +259,7 @@ export default function LeadsPage() {
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-left">
-                  <thead className="border-b border-slate-200 bg-white text-[11px] font-black uppercase tracking-[0.22em] text-slate-400">
+                  <thead className="border-b border-border bg-background text-[11px] font-black uppercase tracking-[0.22em] text-muted">
                     <tr><th className="px-6 py-4">Lead</th><th className="px-6 py-4">Source</th><th className="px-6 py-4">Campaign</th><th className="px-6 py-4">Journey</th><th className="px-6 py-4">Current State</th></tr>
                   </thead>
                   <tbody className="divide-y divide-border/70">

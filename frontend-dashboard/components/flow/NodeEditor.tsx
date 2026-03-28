@@ -216,15 +216,15 @@ export default function NodeEditor({
         <div className="grid grid-cols-2 gap-2">
           <div>
             <label className="block text-[8px] font-black text-amber-600 uppercase mb-1">Reminder Delay (Sec)</label>
-            <input type="number" className="w-full border-none bg-white rounded p-2 text-xs" placeholder="300" value={draftData.reminderDelay || ""} onChange={(e) => updateData('reminderDelay', Number(e.target.value))} />
+            <input type="number" className="w-full border border-border bg-background rounded p-2 text-xs text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary" placeholder="300" value={draftData.reminderDelay || ""} onChange={(e) => updateData('reminderDelay', Number(e.target.value))} />
           </div>
           <div>
             <label className="block text-[8px] font-black text-amber-600 uppercase mb-1">Timeout (Sec)</label>
-            <input type="number" className="w-full border-none bg-white rounded p-2 text-xs" placeholder="900" value={draftData.timeout || ""} onChange={(e) => updateData('timeout', Number(e.target.value))} />
+            <input type="number" className="w-full border border-border bg-background rounded p-2 text-xs text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary" placeholder="900" value={draftData.timeout || ""} onChange={(e) => updateData('timeout', Number(e.target.value))} />
           </div>
         </div>
-        <textarea className="w-full border-none bg-white rounded p-2 text-xs resize-none h-12" placeholder="Reminder text..." value={draftData.reminderText || ""} onChange={(e) => updateData('reminderText', e.target.value)} />
-        <textarea className="w-full border-none bg-white rounded p-2 text-xs resize-none h-12" placeholder="Fallback text if Timeout Node is missing..." value={draftData.timeoutFallback || ""} onChange={(e) => updateData('timeoutFallback', e.target.value)} />
+        <textarea className="w-full border border-border bg-background rounded p-2 text-xs text-foreground resize-none h-12 outline-none focus:border-primary focus:ring-1 focus:ring-primary" placeholder="Reminder text..." value={draftData.reminderText || ""} onChange={(e) => updateData('reminderText', e.target.value)} />
+        <textarea className="w-full border border-border bg-background rounded p-2 text-xs text-foreground resize-none h-12 outline-none focus:border-primary focus:ring-1 focus:ring-primary" placeholder="Fallback text if Timeout Node is missing..." value={draftData.timeoutFallback || ""} onChange={(e) => updateData('timeoutFallback', e.target.value)} />
       </div>
     </div>
   );
@@ -254,7 +254,7 @@ export default function NodeEditor({
           return (
             <input 
               key={num}
-              className="w-full border border-slate-200 bg-slate-50 focus:bg-white rounded-lg p-2.5 text-xs font-medium focus:border-blue-500 outline-none transition-all" 
+              className="w-full border border-border bg-background rounded-lg p-2.5 text-xs font-medium text-foreground focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all" 
               placeholder={`${label} ${num}`}
               value={draftData[`item${num}`] || ""}
               onChange={(e) => updateData(`item${num}`, e.target.value)}
@@ -270,7 +270,7 @@ export default function NodeEditor({
     <div className="space-y-4 pt-4 border-t border-slate-200">
       <div className="bg-blue-50 p-3 rounded-lg border border-blue-100">
         <label className="block text-[10px] font-black text-blue-800 uppercase tracking-widest mb-1">Variable Name</label>
-        <input className="w-full border border-white bg-white rounded p-2 text-xs font-mono" placeholder="e.g. user_email" value={draftData.variable || ""} onChange={(e) => updateData('variable', e.target.value)} />
+        <input className="w-full border border-border bg-background rounded p-2 text-xs font-mono text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary" placeholder="e.g. user_email" value={draftData.variable || ""} onChange={(e) => updateData('variable', e.target.value)} />
       </div>
 
       <div>
@@ -332,7 +332,7 @@ export default function NodeEditor({
                 Which Form?
               </label>
               <select
-                className="w-full border border-emerald-200 bg-white rounded-lg p-2.5 text-xs font-medium outline-none"
+                className="w-full border border-border bg-background rounded-lg p-2.5 text-xs font-medium text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary"
                 value={draftData.linkedFormId || ""}
                 onChange={(e) => {
                   const nextFormId = e.target.value;
@@ -356,7 +356,7 @@ export default function NodeEditor({
                 Which Question?
               </label>
               <select
-                className="w-full border border-emerald-200 bg-white rounded-lg p-2.5 text-xs font-medium outline-none"
+                className="w-full border border-border bg-background rounded-lg p-2.5 text-xs font-medium text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary"
                 value={draftData.linkedFieldKey || ""}
                 onChange={(e) => {
                   applyLeadFormFieldSelection(String(draftData.linkedFormId || ""), e.target.value);
@@ -593,21 +593,21 @@ export default function NodeEditor({
         <button
           type="button"
           onClick={() => updateData('gotoType', 'node')}
-          className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all ${gotoType === 'node' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}
+          className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all ${gotoType === 'node' ? 'bg-primary-fade text-primary border border-primary/20 shadow-sm' : 'text-muted'}`}
         >
           Internal Node
         </button>
         <button
           type="button"
           onClick={() => updateData('gotoType', 'flow')}
-          className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all ${gotoType === 'flow' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}
+          className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all ${gotoType === 'flow' ? 'bg-primary-fade text-primary border border-primary/20 shadow-sm' : 'text-muted'}`}
         >
           Bot Flow
         </button>
         <button
           type="button"
           onClick={() => updateData('gotoType', 'bot')}
-          className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all ${gotoType === 'bot' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}
+          className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all ${gotoType === 'bot' ? 'bg-primary-fade text-primary border border-primary/20 shadow-sm' : 'text-muted'}`}
         >
           Other Bot
         </button>
@@ -805,7 +805,7 @@ export default function NodeEditor({
 
   return (
     <div 
-      className="w-full h-full bg-white flex flex-col relative overflow-hidden nodrag nopan" 
+      className="w-full h-full bg-card text-foreground flex flex-col relative overflow-hidden nodrag nopan" 
       onPointerDownCapture={(e) => e.stopPropagation()}
       onPointerUpCapture={(e) => e.stopPropagation()}
       onMouseDownCapture={(e) => e.stopPropagation()}
@@ -819,7 +819,7 @@ export default function NodeEditor({
           <div>
             <label className="block text-[10px] font-black text-slate-900 uppercase tracking-widest mb-1">Node Header (Label)</label>
             <input 
-              className="w-full border-2 border-slate-200 bg-slate-50 focus:bg-white rounded-xl p-3 text-sm font-bold focus:border-blue-500 outline-none transition-all"
+              className="w-full border border-border bg-background rounded-xl p-3 text-sm font-bold text-foreground focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all"
               placeholder="e.g. Greeting"
               value={draftData.label || ""}
               onChange={(e) => updateData('label', e.target.value)}
@@ -828,7 +828,7 @@ export default function NodeEditor({
           <div>
             <label className="block text-[10px] font-black text-slate-900 uppercase tracking-widest mb-1">Message Text / Notes</label>
             <textarea 
-              className="w-full border-2 border-slate-200 bg-slate-50 focus:bg-white rounded-xl p-3 text-sm min-h-[100px] resize-none focus:border-blue-500 outline-none transition-all"
+              className="w-full border border-border bg-background rounded-xl p-3 text-sm min-h-[100px] text-foreground resize-none focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all"
               placeholder="Content..."
               value={draftData.text || ""}
               onChange={(e) => updateData('text', e.target.value)}
@@ -837,7 +837,7 @@ export default function NodeEditor({
         </div>
         {renderSpecificNodeFields()}
       </div>
-      <div className="w-full p-4 border-t border-slate-200 bg-white shrink-0 shadow-[0_-10px_20px_-5px_rgba(0,0,0,0.05)] z-10">
+      <div className="w-full p-4 border-t border-border bg-card shrink-0 shadow-[0_-10px_20px_-5px_rgba(0,0,0,0.05)] z-10">
         <button
           type="button"
           onPointerDown={(event) => {

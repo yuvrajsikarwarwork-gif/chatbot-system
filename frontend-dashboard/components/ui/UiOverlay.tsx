@@ -3,7 +3,7 @@ import { useUiStore } from "../../store/uiStore";
 const TOAST_TONE_CLASS: Record<string, string> = {
   success: "border-emerald-200 bg-emerald-50 text-emerald-800",
   error: "border-red-200 bg-red-50 text-red-800",
-  info: "border-slate-200 bg-white text-slate-800",
+  info: "border-border bg-card text-foreground",
 };
 
 export default function UiOverlay() {
@@ -34,20 +34,20 @@ export default function UiOverlay() {
       </div>
 
       {confirm?.open ? (
-        <div className="fixed inset-0 z-[130] flex items-center justify-center bg-slate-950/40 px-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-[1.5rem] border border-[var(--line)] bg-[var(--surface-strong)] p-6 shadow-2xl">
-            <h2 className="text-xl font-semibold text-[var(--text)]">{confirm.title}</h2>
-            <p className="mt-3 text-sm leading-6 text-[var(--muted)]">{confirm.message}</p>
+        <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/50 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-[1.5rem] border border-border bg-card p-6 shadow-2xl">
+            <h2 className="text-xl font-semibold text-foreground">{confirm.title}</h2>
+            <p className="mt-3 text-sm leading-6 text-muted">{confirm.message}</p>
             <div className="mt-6 flex justify-end gap-3">
               <button
                 onClick={() => resolveConfirm(false)}
-                className="rounded-xl border border-[var(--line)] bg-[var(--surface-muted)] px-4 py-2 text-sm font-medium text-[var(--text)]"
+                className="rounded-xl border border-border bg-transparent px-4 py-2 text-sm font-medium text-foreground transition-all hover:bg-primary-fade hover:text-primary hover:border-primary/30"
               >
                 {confirm.cancelLabel}
               </button>
               <button
                 onClick={() => resolveConfirm(true)}
-                className="rounded-xl bg-[var(--accent-strong)] px-4 py-2 text-sm font-medium text-white"
+                className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90"
               >
                 {confirm.confirmLabel}
               </button>

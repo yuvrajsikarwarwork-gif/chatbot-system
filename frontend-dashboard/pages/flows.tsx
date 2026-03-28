@@ -751,7 +751,7 @@ function FlowBuilderCanvas() {
     );
   }
 
-  if (isLoading) return <div className="h-screen w-screen flex items-center justify-center bg-slate-900 text-white font-black animate-pulse tracking-tighter uppercase">Loading Workflow...</div>;
+  if (isLoading) return <div className="h-screen w-screen flex items-center justify-center bg-background text-foreground font-black animate-pulse tracking-tighter uppercase">Loading Workflow...</div>;
 
   if (!botId || !isUnlocked) {
     return (
@@ -762,7 +762,7 @@ function FlowBuilderCanvas() {
   }
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-[#F8FAFC] overflow-hidden font-sans">
+    <div className="h-screen w-screen flex flex-col bg-background overflow-hidden font-sans text-foreground">
         <RequirePermission
           permissionKey="edit_workflow"
           fallback={
@@ -834,15 +834,15 @@ function FlowBuilderCanvas() {
 
       <div className="flex-1 flex overflow-hidden relative">
         {flowNameDialogMode ? (
-          <div className="absolute inset-0 z-[70] flex items-center justify-center bg-slate-900/30 px-4 backdrop-blur-[2px]">
-            <div className="w-full max-w-md rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-2xl">
-              <div className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+          <div className="absolute inset-0 z-[70] flex items-center justify-center bg-black/50 px-4 backdrop-blur-sm">
+            <div className="w-full max-w-md rounded-[1.5rem] border border-border bg-card p-6 shadow-2xl">
+              <div className="text-[10px] font-black uppercase tracking-[0.2em] text-muted">
                 {flowNameDialogMode === "create" ? "Create Flow" : "Rename Flow"}
               </div>
-              <h3 className="mt-3 text-lg font-semibold text-slate-900">
+              <h3 className="mt-3 text-lg font-semibold text-foreground">
                 {flowNameDialogMode === "create" ? "Name the new flow" : "Update flow name"}
               </h3>
-              <p className="mt-2 text-sm leading-6 text-slate-500">
+              <p className="mt-2 text-sm leading-6 text-muted">
                 {flowNameDialogMode === "create"
                   ? "Create a separate workflow for this bot with a clear name."
                   : "Change the current flow name without leaving the builder."}
@@ -858,20 +858,20 @@ function FlowBuilderCanvas() {
                   }
                 }}
                 placeholder="Flow name"
-                className="mt-5 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 outline-none"
+                className="mt-5 w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm font-semibold text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary"
               />
               <div className="mt-5 flex items-center justify-end gap-3">
                 <button
                   type="button"
                   onClick={closeFlowNameDialog}
-                  className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-black uppercase tracking-[0.16em] text-slate-600 transition hover:bg-slate-50"
+                  className="rounded-xl border border-border bg-transparent px-4 py-2.5 text-xs font-black uppercase tracking-[0.16em] text-foreground transition hover:bg-primary-fade hover:text-primary hover:border-primary/30"
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
                   onClick={() => handleSubmitFlowNameDialog().catch(() => undefined)}
-                  className="rounded-xl border border-slate-900 bg-slate-900 px-4 py-2.5 text-xs font-black uppercase tracking-[0.16em] text-white transition hover:bg-black"
+                  className="rounded-xl bg-primary px-4 py-2.5 text-xs font-black uppercase tracking-[0.16em] text-white transition-opacity hover:opacity-90"
                 >
                   Save
                 </button>
@@ -915,21 +915,21 @@ function FlowBuilderCanvas() {
             panOnScroll={true}
             deleteKeyCode={null}
             onInit={onInit} 
-            className="bg-[#f1f5f9]"
+            className="bg-background"
           >
-            <Background color="#ccc" gap={20} size={1} />
+            <Background color="var(--border)" gap={20} size={1} />
             <Controls className="mb-4 ml-4 shadow-xl border-none" />
             
             {selectedNode && (
           <Panel
                 position="top-right"
-                className="bg-white/95 backdrop-blur-md border border-slate-200 shadow-2xl rounded-2xl w-[350px] h-[85%] overflow-hidden flex flex-col mr-6 mt-6 animate-in slide-in-from-right-8 z-50"
+                className="bg-card border border-border shadow-2xl rounded-2xl w-[350px] h-[85%] overflow-hidden flex flex-col mr-6 mt-6 animate-in slide-in-from-right-8 z-50"
                 onMouseDown={(e) => e.stopPropagation()}
                 onClick={(e) => e.stopPropagation()}
               >
-                <div className="h-14 bg-slate-900 flex items-center justify-between px-5 shrink-0">
-                  <span className="text-xs font-black text-white uppercase tracking-widest">Edit Node Data</span>
-                  <button onClick={handleCloseNodeEditor} className="text-slate-400 hover:text-white"><X size={18} /></button>
+                <div className="h-14 bg-background border-b border-border flex items-center justify-between px-5 shrink-0">
+                  <span className="text-xs font-black text-foreground uppercase tracking-widest">Edit Node Data</span>
+                  <button onClick={handleCloseNodeEditor} className="text-muted hover:text-primary"><X size={18} /></button>
                 </div>
                 <div className="flex-1 overflow-y-auto custom-scrollbar relative">
                   <NodeEditor
@@ -945,7 +945,7 @@ function FlowBuilderCanvas() {
                     leadForms={leadForms}
                   />
                   {!canEditProjectWorkflow ? (
-                    <div className="absolute inset-0 bg-white/55 backdrop-blur-[1px]" />
+                    <div className="absolute inset-0 bg-black/10 backdrop-blur-[1px]" />
                   ) : null}
                 </div>
               </Panel>

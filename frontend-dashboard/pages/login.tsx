@@ -44,16 +44,16 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center px-4">
-      <div className="w-full max-w-sm rounded-[2rem] border border-[var(--glass-border)] bg-[var(--glass-surface)] p-7 shadow-[var(--shadow-glass)] backdrop-blur-2xl">
-        <div className="text-[10px] font-semibold uppercase tracking-[0.28em] text-[var(--muted)]">
+    <div className="flex min-h-screen items-center justify-center bg-background px-4 text-foreground transition-colors duration-300">
+      <div className="w-full max-w-sm rounded-[2rem] border border-border bg-card p-8 shadow-xl transition-colors duration-300">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.28em] text-muted">
           Bot.OS
         </div>
-        <h1 className="mt-3 bg-[linear-gradient(180deg,var(--text),color-mix(in_srgb,var(--text)_72%,var(--accent)_28%))] bg-clip-text text-3xl font-black tracking-[-0.04em] text-transparent">
+        <h1 className="mt-3 text-3xl font-black tracking-[-0.04em] text-foreground">
           Sign in
         </h1>
-        <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
-          Access your workspace or platform control view with the updated glass shell.
+        <p className="mt-2 text-sm leading-6 text-muted">
+          Access your workspace or platform control view with the Midnight Onyx shell.
         </p>
 
         {error ? (
@@ -63,20 +63,20 @@ export default function LoginPage() {
         ) : null}
 
         <input
-          className="mt-5 w-full rounded-2xl border border-[var(--glass-border)] bg-[var(--glass-surface-strong)] px-4 py-3 text-sm text-[var(--text)] shadow-[inset_0_1px_0_rgba(255,255,255,0.22)] outline-none"
+          className="mt-5 w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary"
           placeholder="email"
           onChange={(e) => setEmail(e.target.value)}
         />
 
         <input
-          className="mt-3 w-full rounded-2xl border border-[var(--glass-border)] bg-[var(--glass-surface-strong)] px-4 py-3 text-sm text-[var(--text)] shadow-[inset_0_1px_0_rgba(255,255,255,0.22)] outline-none"
+          className="mt-3 w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary"
           placeholder="password"
           type="password"
           onChange={(e) => setPassword(e.target.value)}
         />
 
         <button
-          className="mt-4 w-full rounded-2xl border border-[rgba(129,140,248,0.4)] bg-[linear-gradient(135deg,var(--accent),var(--accent-strong))] px-4 py-3 text-sm font-black uppercase tracking-[0.18em] text-white shadow-[0_18px_30px_var(--accent-glow)] transition duration-300 hover:-translate-y-0.5"
+          className="mt-4 w-full rounded-2xl bg-primary px-4 py-3 text-sm font-black uppercase tracking-[0.18em] text-white transition-opacity hover:opacity-90"
           onClick={login}
           disabled={isSubmitting}
         >
@@ -84,7 +84,7 @@ export default function LoginPage() {
         </button>
 
         <div className="mt-3 text-center">
-          <Link href="/forgot-password" className="text-sm text-[var(--muted)] underline">
+          <Link href="/forgot-password" className="text-sm text-muted underline">
             Forgot password?
           </Link>
         </div>

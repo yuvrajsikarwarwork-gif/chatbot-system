@@ -126,7 +126,7 @@ export default function SupportRequestPage() {
                     Target user id
                   </label>
                   <input
-                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none"
+                    className="w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary"
                     placeholder="Optional support user id"
                     value={form.targetUserId}
                     onChange={(event) =>
@@ -141,7 +141,7 @@ export default function SupportRequestPage() {
                   </label>
                   <input
                     type="datetime-local"
-                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none"
+                    className="w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary"
                     value={form.requestedExpiresAt}
                     onChange={(event) =>
                       setForm((current) => ({ ...current, requestedExpiresAt: event.target.value }))
@@ -154,7 +154,7 @@ export default function SupportRequestPage() {
                     Reason
                   </label>
                   <textarea
-                    className="min-h-[160px] w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none"
+                    className="min-h-[160px] w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary"
                     placeholder="Describe the issue, the impact, and whether temporary support access is required."
                     value={form.reason}
                     onChange={(event) =>
