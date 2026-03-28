@@ -1,0 +1,2 @@
+id,workspace_id,user_id,role,status,permissions_json,created_by,created_at,updated_at,name,email,global_role
+1551e739-18d7-4e97-93cb-bfde6e85081d,9b66b88d-220b-4eed-92b2-8503ce3ef6b4,a5b44a33-9c6f-45be-a0c4-380a0ca17395,admin,active,{},bf9a52f2-0200-4d14-96ed-284d84e4dbf1,"""2026-03-28T13:44:12.960Z""","""2026-03-28T13:44:12.960Z""",Export Owner 1774705452832,export-owner-1774705452832@example.test,user

@@ -62,6 +62,7 @@ export async function findEntryPointByChannelAndKey(
      FROM entry_points ep
      JOIN campaigns c ON c.id = ep.campaign_id
      WHERE ep.channel_id = $1
+       AND c.deleted_at IS NULL
        AND lower(ep.entry_key) = lower($2)
        AND (
          c.user_id = $3
@@ -92,6 +93,7 @@ export async function findEntryPointByChannelAndSourceRef(
      FROM entry_points ep
      JOIN campaigns c ON c.id = ep.campaign_id
      WHERE ep.channel_id = $1
+       AND c.deleted_at IS NULL
        AND lower(ep.source_ref) = lower($2)
        AND (
          c.user_id = $3
@@ -174,6 +176,7 @@ export async function findListByCampaignAndKey(
      FROM lists l
      JOIN campaigns c ON c.id = l.campaign_id
      WHERE l.campaign_id = $1
+       AND c.deleted_at IS NULL
        AND lower(l.list_key) = lower($2)
        AND (
          c.user_id = $3
@@ -208,6 +211,8 @@ export async function findCampaignsByUser(userId: string) {
      LEFT JOIN lists l ON l.campaign_id = c.id
      LEFT JOIN leads ld ON ld.campaign_id = c.id
      WHERE (
+       c.deleted_at IS NULL
+       AND (
        c.user_id = $1
        OR (
          c.workspace_id IS NOT NULL
@@ -215,10 +220,10 @@ export async function findCampaignsByUser(userId: string) {
            SELECT workspace_id
            FROM workspace_memberships
            WHERE user_id = $1
-             AND status = 'active'
+           AND status = 'active'
          )
        )
-     )
+     ))
      GROUP BY c.id
      ORDER BY c.created_at DESC`,
     [userId]
@@ -251,7 +256,8 @@ export async function findCampaignsByWorkspaceProject(
      LEFT JOIN entry_points ep ON ep.campaign_id = c.id
      LEFT JOIN lists l ON l.campaign_id = c.id
      LEFT JOIN leads ld ON ld.campaign_id = c.id
-     WHERE c.workspace_id = $1${projectClause}
+     WHERE c.workspace_id = $1
+       AND c.deleted_at IS NULL${projectClause}
      GROUP BY c.id
      ORDER BY c.created_at DESC`,
     params
@@ -264,7 +270,8 @@ export async function findCampaignById(id: string, userId: string) {
   const res = await query(
     `SELECT *
      FROM campaigns
-     WHERE id = $1`,
+     WHERE id = $1
+       AND deleted_at IS NULL`,
     [id]
   );
 
@@ -280,6 +287,7 @@ export async function findCampaignBySlug(
     `SELECT *
      FROM campaigns
      WHERE slug = $2
+       AND deleted_at IS NULL
        AND (
          ($3::uuid IS NOT NULL AND workspace_id = $3)
          OR ($3::uuid IS NULL AND user_id = $1 AND workspace_id IS NULL)
@@ -1032,8 +1040,14 @@ export async function findCampaignChannelByWhatsAppPhoneNumberId(
   const res = await query(
     `SELECT cc.*
      FROM campaign_channels cc
+     JOIN campaigns c ON c.id = cc.campaign_id
+     JOIN bots b ON b.id = cc.bot_id
+     LEFT JOIN workspaces w ON w.id = c.workspace_id
      WHERE cc.platform = 'whatsapp'
        AND cc.status = 'active'
+       AND c.deleted_at IS NULL
+       AND b.deleted_at IS NULL
+       AND (w.id IS NULL OR w.deleted_at IS NULL)
        AND (
          cc.config->>'phoneNumberId' = $1
          OR cc.platform_account_id = $1
@@ -1041,6 +1055,7 @@ export async function findCampaignChannelByWhatsAppPhoneNumberId(
            SELECT 1
            FROM platform_accounts pa
            WHERE pa.id = cc.platform_account_ref_id
+             AND pa.status = 'active'
              AND (pa.phone_number = $1 OR pa.account_id = $1)
          )
        )
@@ -1058,8 +1073,14 @@ export async function findCampaignChannelsByWhatsAppPhoneNumberId(
   const res = await query(
     `SELECT cc.*
      FROM campaign_channels cc
+     JOIN campaigns c ON c.id = cc.campaign_id
+     JOIN bots b ON b.id = cc.bot_id
+     LEFT JOIN workspaces w ON w.id = c.workspace_id
      WHERE cc.platform = 'whatsapp'
        AND cc.status = 'active'
+       AND c.deleted_at IS NULL
+       AND b.deleted_at IS NULL
+       AND (w.id IS NULL OR w.deleted_at IS NULL)
        AND (
          cc.config->>'phoneNumberId' = $1
          OR cc.platform_account_id = $1
@@ -1067,6 +1088,7 @@ export async function findCampaignChannelsByWhatsAppPhoneNumberId(
            SELECT 1
            FROM platform_accounts pa
            WHERE pa.id = cc.platform_account_ref_id
+             AND pa.status = 'active'
              AND (pa.phone_number = $1 OR pa.account_id = $1)
          )
        )
@@ -1084,9 +1106,15 @@ export async function findCampaignChannelsByBotAndPlatform(
   const res = await query(
     `SELECT cc.*
      FROM campaign_channels cc
+     JOIN campaigns c ON c.id = cc.campaign_id
+     JOIN bots b ON b.id = cc.bot_id
+     LEFT JOIN workspaces w ON w.id = c.workspace_id
      WHERE cc.bot_id = $1
        AND cc.platform = $2
        AND cc.status = 'active'
+       AND c.deleted_at IS NULL
+       AND b.deleted_at IS NULL
+       AND (w.id IS NULL OR w.deleted_at IS NULL)
      ORDER BY cc.created_at ASC`,
     [botId, platform]
   );

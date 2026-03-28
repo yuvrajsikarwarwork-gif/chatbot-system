@@ -6,22 +6,26 @@ import DashboardLayout from "../../../components/layout/DashboardLayout";
 import WorkspaceConsoleTabs from "../../../components/workspace/WorkspaceConsoleTabs";
 import WorkspaceStatusBanner from "../../../components/workspace/WorkspaceStatusBanner";
 import { useVisibility } from "../../../hooks/useVisibility";
-import { authService } from "../../../services/authService";
 import { workspaceMembershipService, type WorkspaceMember } from "../../../services/workspaceMembershipService";
 import { workspaceService, type Workspace } from "../../../services/workspaceService";
+import { useAuthStore } from "../../../store/authStore";
 import { confirmAction, notify } from "../../../store/uiStore";
 
 export default function WorkspaceMembersAccessPage() {
   const router = useRouter();
   const { workspaceId } = router.query;
-  const { canViewPage } = useVisibility();
+  const { canManagePermissions, canManageUsers, isPlatformOperator } = useVisibility();
+  const activeWorkspace = useAuthStore((state) => state.activeWorkspace);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const canViewPageAccess = canViewPage("workspaces");
   const normalizedWorkspaceId = String(workspaceId || "").trim();
+  const canViewPageAccess =
+    isPlatformOperator ||
+    (activeWorkspace?.workspace_id === normalizedWorkspaceId &&
+      (canManageUsers || canManagePermissions));
 
   useEffect(() => {
     if (!normalizedWorkspaceId || !canViewPageAccess) {
@@ -86,10 +90,12 @@ export default function WorkspaceMembersAccessPage() {
     }
 
     try {
-      await authService.requestPasswordReset(ownerEmail);
-      notify("Password reset email sent to the workspace owner.", "success");
+      await workspaceService.emergencyResetOwnerPassword(normalizedWorkspaceId);
+      notify("Emergency reset sent to the workspace owner.", "success");
     } catch (err: any) {
-      setError(err?.response?.data?.error || "Failed to send password reset email.");
+      const message = err?.response?.data?.error || "Failed to send emergency reset.";
+      setError(message);
+      notify(message, "error");
     }
   };
 
@@ -98,7 +104,7 @@ export default function WorkspaceMembersAccessPage() {
       {!canViewPageAccess ? (
         <PageAccessNotice
           title="Workspace members are restricted for this role"
-          description="Workspace team visibility is available through the workspace detail console for authorized operators."
+          description="Workspace team visibility is available to platform operators and workspace permission managers."
           href="/workspaces"
           ctaLabel="Open workspaces"
         />
@@ -141,13 +147,15 @@ export default function WorkspaceMembersAccessPage() {
                   Primary owner: {ownerMember?.name || ownerMember?.email || workspace.owner_user_id}
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={handleOwnerReset}
-                className="rounded-[1rem] border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800 transition duration-200 hover:bg-sky-100"
-              >
-                Send owner password reset
-              </button>
+              {isPlatformOperator ? (
+                <button
+                  type="button"
+                  onClick={handleOwnerReset}
+                  className="rounded-[1rem] border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800 transition duration-200 hover:bg-sky-100"
+                >
+                  Send owner password reset
+                </button>
+              ) : null}
             </div>
           </section>
 

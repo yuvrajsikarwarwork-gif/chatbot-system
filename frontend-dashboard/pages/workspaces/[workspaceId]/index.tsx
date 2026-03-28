@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { useRouter } from "next/router";
 import { useEffect, useMemo, useState } from "react";
-import { Activity, Bot, Briefcase, CreditCard, Layers3, LifeBuoy, MessageSquareMore, PlugZap, Trash2, Users } from "lucide-react";
+import { Activity, Archive, Bot, Briefcase, CreditCard, Layers3, LifeBuoy, MessageSquareMore, PlugZap, Trash2, Users } from "lucide-react";
 
 import PageAccessNotice from "../../../components/access/PageAccessNotice";
 import DashboardLayout from "../../../components/layout/DashboardLayout";
@@ -51,17 +51,23 @@ export default function WorkspaceOverviewPage() {
   const user = useAuthStore((state) => state.user);
   const memberships = useAuthStore((state) => state.memberships);
   const projectAccesses = useAuthStore((state) => state.projectAccesses);
+  const activeWorkspace = useAuthStore((state) => state.activeWorkspace);
+  const hasWorkspacePermission = useAuthStore((state) => state.hasWorkspacePermission);
   const setPermissionSnapshot = useAuthStore((state) => state.setPermissionSnapshot);
   const [overview, setOverview] = useState<WorkspaceOverview | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const canViewWorkspacesPage = canViewPage("workspaces");
   const normalizedWorkspaceId = String(workspaceId || "").trim();
+  const canViewWorkspaceOverview =
+    canViewPage("workspaces") ||
+    isPlatformOperator ||
+    (activeWorkspace?.workspace_id === normalizedWorkspaceId &&
+      hasWorkspacePermission(normalizedWorkspaceId, "view_workspace"));
   const canOpenBilling = canViewBilling;
 
   useEffect(() => {
-    if (!normalizedWorkspaceId || !canViewWorkspacesPage) {
+    if (!normalizedWorkspaceId || !canViewWorkspaceOverview) {
       setOverview(null);
       return;
     }
@@ -93,13 +99,53 @@ export default function WorkspaceOverviewPage() {
     return () => {
       cancelled = true;
     };
-  }, [normalizedWorkspaceId, canViewWorkspacesPage]);
+  }, [normalizedWorkspaceId, canViewWorkspaceOverview]);
+
+  const handleArchiveWorkspace = async () => {
+    if (!workspace) {
+      return;
+    }
+
+    const confirmed = await confirmAction(
+      "Archive workspace",
+      `Archive ${workspace.name}? This keeps the record for recovery and audit, but blocks normal tenant access until a platform operator reactivates it.`,
+      "Archive"
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      const updated = await workspaceService.archive(workspace.id);
+      setOverview((current) =>
+        current
+          ? {
+              ...current,
+              workspace: {
+                ...current.workspace,
+                ...updated,
+              },
+            }
+          : current
+      );
+      notify("Workspace archived.", "success");
+    } catch (err: any) {
+      const message = err?.response?.data?.error || "Failed to archive workspace.";
+      setError(message);
+      notify(message, "error");
+    }
+  };
 
   const workspace = overview?.workspace || null;
   const metrics = overview?.metrics;
   const wallet = overview?.wallet;
   const holdActionLabel =
-    workspace?.status === "suspended" ? "Reactivate Workspace" : "Place Account Hold";
+    workspace?.status === "archived"
+      ? "Restore Workspace"
+      : workspace?.status === "suspended"
+        ? "Reactivate Workspace"
+        : "Place Account Hold";
   const usageCards = useMemo(() => {
     if (!overview) {
       return [];
@@ -121,20 +167,32 @@ export default function WorkspaceOverviewPage() {
 
     if (
       !(await confirmAction(
-        "Delete workspace",
-        `This will permanently delete ${workspace.name} if it has no blocking bots, flows, campaigns, integrations, or conversations.`,
-        "Delete"
+        "Schedule workspace deletion",
+        `This will soft-delete ${workspace.name}, hide tenant data from normal views, and schedule permanent purge after 30 days.`,
+        "Schedule deletion"
       ))
     ) {
       return;
     }
 
     try {
-      await workspaceService.delete(workspace.id);
-      notify("Workspace deleted.", "success");
-      router.replace("/workspaces").catch(() => undefined);
+      const updated = await workspaceService.delete(workspace.id);
+      setOverview((current) =>
+        current
+          ? {
+              ...current,
+              workspace: {
+                ...current.workspace,
+                ...updated,
+              },
+            }
+          : current
+      );
+      notify("Workspace scheduled for deletion.", "success");
     } catch (err: any) {
-      setError(err?.response?.data?.error || "Failed to delete workspace.");
+      const message = err?.response?.data?.error || "Failed to delete workspace.";
+      setError(message);
+      notify(message, "error");
     }
   };
 
@@ -143,7 +201,12 @@ export default function WorkspaceOverviewPage() {
       return;
     }
 
-    const nextStatus = workspace.status === "suspended" ? "active" : "suspended";
+    const nextStatus =
+      workspace.status === "archived"
+        ? "active"
+        : workspace.status === "suspended"
+          ? "active"
+          : "suspended";
     const confirmed = await confirmAction(
       nextStatus === "suspended" ? "Place account hold" : "Reactivate workspace",
       nextStatus === "suspended"
@@ -157,7 +220,10 @@ export default function WorkspaceOverviewPage() {
     }
 
     try {
-      const updated = await workspaceService.update(workspace.id, { status: nextStatus });
+      const updated =
+        workspace.deleted_at && nextStatus === "active"
+          ? await workspaceService.restore(workspace.id)
+          : await workspaceService.update(workspace.id, { status: nextStatus });
       setOverview((current) =>
         current
           ? {
@@ -170,11 +236,17 @@ export default function WorkspaceOverviewPage() {
           : current
       );
       notify(
-        nextStatus === "suspended" ? "Workspace placed on hold." : "Workspace reactivated.",
+        nextStatus === "suspended"
+          ? "Workspace placed on hold."
+          : workspace.deleted_at
+            ? "Workspace restored."
+            : "Workspace reactivated.",
         "success"
       );
     } catch (err: any) {
-      setError(err?.response?.data?.error || "Failed to update workspace status.");
+      const message = err?.response?.data?.error || "Failed to update workspace status.";
+      setError(message);
+      notify(message, "error");
     }
   };
 
@@ -183,9 +255,21 @@ export default function WorkspaceOverviewPage() {
       return;
     }
 
+    const confirmed = await confirmAction(
+      "Confirm support consent",
+      `Confirm the client has explicitly approved temporary support entry for ${workspace.name} before continuing.`,
+      "Enter workspace"
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
     try {
       const session = await authService.startSupportSession({
         workspaceId: workspace.id,
+        consentConfirmed: true,
+        consentNote: "Confirmed from workspace overview support entry",
       });
       setPermissionSnapshot({
         user: session.user || user,
@@ -198,16 +282,18 @@ export default function WorkspaceOverviewPage() {
       notify("Support session started.", "success");
       router.replace(`/workspaces/${workspace.id}`).catch(() => undefined);
     } catch (err: any) {
-      setError(err?.response?.data?.error || "Failed to start support session.");
+      const message = err?.response?.data?.error || "Failed to start support session.";
+      setError(message);
+      notify(message, "error");
     }
   };
 
   return (
     <DashboardLayout>
-      {!canViewWorkspacesPage ? (
+      {!canViewWorkspaceOverview ? (
         <PageAccessNotice
           title="Workspace overview is restricted for this role"
-          description="Workspace overview is available to platform operators and users with workspace visibility."
+          description="Workspace overview is available to platform operators and workspace members with view access."
           href="/"
           ctaLabel="Open dashboard"
         />
@@ -269,13 +355,25 @@ export default function WorkspaceOverviewPage() {
                 {isPlatformOperator ? (
                   <button
                     type="button"
+                    onClick={handleArchiveWorkspace}
+                    className="rounded-[1.05rem] border border-slate-200 bg-slate-50 px-4 py-3 text-left text-sm text-slate-700 transition duration-200 hover:bg-slate-100"
+                  >
+                    <span className="inline-flex items-center gap-2">
+                      <Archive size={14} />
+                      Archive Workspace
+                    </span>
+                  </button>
+                ) : null}
+                {isPlatformOperator ? (
+                  <button
+                    type="button"
                     onClick={handleSupportLogin}
                     className="rounded-[1.05rem] border border-sky-200 bg-sky-50 px-4 py-3 text-left text-sm text-sky-800 transition duration-200 hover:bg-sky-100"
                   >
                     Login as Workspace
                   </button>
                 ) : null}
-                {canOpenBilling ? (
+                {isPlatformOperator ? (
                   <button
                     type="button"
                     onClick={handleDeleteWorkspace}

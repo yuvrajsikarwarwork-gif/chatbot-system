@@ -12,6 +12,9 @@ interface WorkspaceInput {
   monthlyCampaignLimitOverride?: number | null;
   maxNumbersOverride?: number | null;
   aiReplyLimitOverride?: number | null;
+  archivedAt?: string | null;
+  deletedAt?: string | null;
+  purgeAfter?: string | null;
 }
 
 const WORKSPACE_SELECT_BASE = `SELECT
@@ -144,24 +147,27 @@ async function queryWorkspacesWithFallback(whereClause: string, params: any[]) {
 
 export async function findWorkspacesByUser(userId: string) {
   const res = await queryWorkspacesWithFallback(
-    `WHERE EXISTS (
-         SELECT 1
-         FROM users u
-         WHERE u.id = $1
-            AND u.role IN ('super_admin', 'developer')
-        )
-        OR w.owner_user_id = $1
-        OR w.id IN (
-          SELECT workspace_id
-          FROM workspace_memberships
-          WHERE user_id = $1
-            AND status = 'active'
-        )
-        OR w.id IN (
-          SELECT workspace_id
-          FROM users
-          WHERE id = $1
-        )
+    `WHERE (
+         EXISTS (
+           SELECT 1
+           FROM users u
+           WHERE u.id = $1
+              AND u.role IN ('super_admin', 'developer')
+          )
+          OR w.owner_user_id = $1
+          OR w.id IN (
+            SELECT workspace_id
+            FROM workspace_memberships
+            WHERE user_id = $1
+              AND status = 'active'
+          )
+          OR w.id IN (
+            SELECT workspace_id
+            FROM users
+            WHERE id = $1
+          )
+       )
+       AND w.deleted_at IS NULL
      ORDER BY w.created_at DESC`,
     [userId]
   );
@@ -239,8 +245,11 @@ export async function updateWorkspace(
        monthly_campaign_limit_override = CASE WHEN $11 THEN $12 ELSE monthly_campaign_limit_override END,
        max_numbers_override = CASE WHEN $13 THEN $14 ELSE max_numbers_override END,
        ai_reply_limit_override = CASE WHEN $15 THEN $16 ELSE ai_reply_limit_override END,
-       updated_at = NOW()
-     WHERE id = $17
+       archived_at = CASE WHEN $17 THEN $18 ELSE archived_at END,
+       deleted_at = CASE WHEN $19 THEN $20 ELSE deleted_at END,
+       purge_after = CASE WHEN $21 THEN $22 ELSE purge_after END,
+        updated_at = NOW()
+     WHERE id = $23
      RETURNING *`,
     [
       input.name || null,
@@ -259,6 +268,12 @@ export async function updateWorkspace(
       input.maxNumbersOverride ?? null,
       input.aiReplyLimitOverride !== undefined,
       input.aiReplyLimitOverride ?? null,
+      input.archivedAt !== undefined,
+      input.archivedAt ?? null,
+      input.deletedAt !== undefined,
+      input.deletedAt ?? null,
+      input.purgeAfter !== undefined,
+      input.purgeAfter ?? null,
       id,
     ]
   );

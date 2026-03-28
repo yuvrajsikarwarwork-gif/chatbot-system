@@ -58,10 +58,13 @@ export async function updateEmailServicesSettings(req: Request, res: Response) {
   res.json(
     await updateEmailServicesSettingsService({
       userId,
+      provider: String(req.body?.provider || "smtp"),
       smtpHost: String(req.body?.smtpHost || ""),
       smtpPort: req.body?.smtpPort,
       smtpUser: String(req.body?.smtpUser || ""),
       smtpFrom: String(req.body?.smtpFrom || ""),
+      smtpReplyTo: typeof req.body?.smtpReplyTo === "string" ? req.body.smtpReplyTo : null,
+      testRecipient: typeof req.body?.testRecipient === "string" ? req.body.testRecipient : null,
       smtpPass: typeof req.body?.smtpPass === "string" ? req.body.smtpPass : null,
     })
   );
@@ -82,8 +85,12 @@ export async function updateAiProvidersSettings(req: Request, res: Response) {
       userId,
       defaultProvider: String(req.body?.defaultProvider || ""),
       defaultModel: String(req.body?.defaultModel || ""),
+      fallbackProvider: String(req.body?.fallbackProvider || ""),
+      fallbackModel: String(req.body?.fallbackModel || ""),
       openaiModel: String(req.body?.openaiModel || ""),
       geminiModel: String(req.body?.geminiModel || ""),
+      temperature: req.body?.temperature,
+      maxOutputTokens: req.body?.maxOutputTokens,
       openaiApiKey: typeof req.body?.openaiApiKey === "string" ? req.body.openaiApiKey : null,
       geminiApiKey: typeof req.body?.geminiApiKey === "string" ? req.body.geminiApiKey : null,
     })
@@ -99,10 +106,17 @@ export async function updateBillingWalletSettings(req: Request, res: Response) {
   res.json(
     await updateBillingWalletSettingsService({
       userId,
+      billingProvider: String(req.body?.billingProvider || "hybrid"),
       stripePublicKey: String(req.body?.stripePublicKey || ""),
       stripeSecretKey: typeof req.body?.stripeSecretKey === "string" ? req.body.stripeSecretKey : null,
+      stripeWebhookSecret:
+        typeof req.body?.stripeWebhookSecret === "string" ? req.body.stripeWebhookSecret : null,
       razorpayKeyId: String(req.body?.razorpayKeyId || ""),
       razorpayKeySecret: typeof req.body?.razorpayKeySecret === "string" ? req.body.razorpayKeySecret : null,
+      razorpayWebhookSecret:
+        typeof req.body?.razorpayWebhookSecret === "string" ? req.body.razorpayWebhookSecret : null,
+      billingWebhookUrl:
+        typeof req.body?.billingWebhookUrl === "string" ? req.body.billingWebhookUrl : null,
       defaultCurrency: String(req.body?.defaultCurrency || "INR"),
       walletAutoTopupDefaultEnabled: Boolean(req.body?.walletAutoTopupDefaultEnabled),
       walletAutoTopupDefaultAmount: req.body?.walletAutoTopupDefaultAmount,

@@ -44,6 +44,7 @@ export async function findConversation(
     FROM conversations c
     JOIN contacts ct ON c.contact_id = ct.id
     WHERE c.bot_id = $1
+      AND c.deleted_at IS NULL
       AND c.channel = $2
       AND ct.platform_user_id = $3
     `,
@@ -63,6 +64,7 @@ export async function createConversation(
     `SELECT workspace_id, project_id
      FROM bots
      WHERE id = $1
+       AND deleted_at IS NULL
      LIMIT 1`,
     [botId]
   );
@@ -87,6 +89,7 @@ export async function createConversation(
     ON CONFLICT (contact_id, channel)
     DO UPDATE SET
       updated_at = CURRENT_TIMESTAMP,
+      deleted_at = NULL,
       contact_name = COALESCE(conversations.contact_name, EXCLUDED.contact_name),
       contact_phone = COALESCE(conversations.contact_phone, EXCLUDED.contact_phone)
     RETURNING *
@@ -136,7 +139,7 @@ const BASE_CONVERSATION_JOINS = `
   FROM conversations c
   JOIN contacts ct ON c.contact_id = ct.id
   JOIN bots b ON c.bot_id = b.id
-  LEFT JOIN campaigns cp ON cp.id = c.campaign_id
+  LEFT JOIN campaigns cp ON cp.id = c.campaign_id AND cp.deleted_at IS NULL
   LEFT JOIN campaign_channels cc ON cc.id = c.channel_id
   LEFT JOIN entry_points ep ON ep.id = c.entry_point_id
   LEFT JOIN flows f ON f.id = c.flow_id
@@ -175,7 +178,7 @@ const BASE_CONVERSATION_JOINS = `
 `;
 
 function buildConversationFilterQuery(filters: ConversationFilterInput) {
-  const clauses: string[] = [];
+  const clauses: string[] = ["c.deleted_at IS NULL", "b.deleted_at IS NULL"];
   const values: unknown[] = [];
 
   const add = (sql: string, value: unknown) => {

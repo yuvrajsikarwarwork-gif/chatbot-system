@@ -66,23 +66,37 @@ async function buildAuthContext(user: any) {
   const isPlatformOperator =
     String(user?.role || "").trim().toLowerCase() === "super_admin" ||
     String(user?.role || "").trim().toLowerCase() === "developer";
+  const recoveryMemberships = memberships.filter(
+    (membership: any) => Boolean(membership?.workspace_deleted_at)
+  );
   const eligibleMemberships = isPlatformOperator
     ? memberships
     : memberships.filter((membership: any) => {
         const workspaceStatus = String(membership?.workspace_status || "active").trim().toLowerCase();
-        return workspaceStatus !== "suspended" && workspaceStatus !== "locked";
+        const isDeleted = Boolean(membership?.workspace_deleted_at);
+        return (
+          isDeleted ||
+          workspaceStatus !== "suspended" &&
+          workspaceStatus !== "locked" &&
+          workspaceStatus !== "archived"
+        );
       });
 
-  if (!isPlatformOperator && memberships.length > 0 && eligibleMemberships.length === 0) {
+  if (
+    !isPlatformOperator &&
+    memberships.length > 0 &&
+    eligibleMemberships.length === 0 &&
+    recoveryMemberships.length === 0
+  ) {
     throw {
       status: 403,
-      message: "This workspace is suspended or locked. Please contact support.",
+      message: "This workspace is suspended, archived, or locked. Please contact support.",
     };
   }
 
   const directActiveWorkspace =
     eligibleMemberships.find((membership: any) => membership.workspace_id === user.workspace_id) ||
-    (!isPlatformOperator ? eligibleMemberships[0] || null : null);
+    (!isPlatformOperator ? eligibleMemberships[0] || recoveryMemberships[0] || null : null);
   const supportModeWorkspace =
     isPlatformOperator && !directActiveWorkspace ? await buildSupportModeWorkspace(user) : null;
   const activeWorkspace = directActiveWorkspace || supportModeWorkspace || null;
@@ -314,6 +328,8 @@ export async function createSupportWorkspaceSessionService(input: {
   actorUserId: string;
   workspaceId: string;
   durationHours?: number;
+  consentConfirmed?: boolean;
+  consentNote?: string | null;
 }) {
   await assertPlatformRoles(input.actorUserId, ["super_admin", "developer"]);
 
@@ -326,14 +342,18 @@ export async function createSupportWorkspaceSessionService(input: {
   if (!workspace) {
     throw { status: 404, message: "Workspace not found" };
   }
+  if (input.consentConfirmed !== true) {
+    throw { status: 400, message: "Explicit client-consent confirmation is required before entering support mode." };
+  }
 
   const durationHours = Math.max(1, Number(input.durationHours || 2));
   const expiresAt = new Date(Date.now() + durationHours * 60 * 60 * 1000).toISOString();
+  const consentNote = String(input.consentNote || "").trim();
   const supportAccess = await upsertSupportAccess({
     workspaceId: input.workspaceId,
     userId: input.actorUserId,
     grantedBy: input.actorUserId,
-    reason: "Workspace impersonation support session",
+    reason: consentNote || "Workspace impersonation support session with client consent confirmed",
     expiresAt,
   });
 
@@ -382,6 +402,8 @@ export async function createSupportWorkspaceSessionService(input: {
     newData: {
       workspaceId: input.workspaceId,
       expiresAt,
+      consentConfirmed: true,
+      consentNote: consentNote || null,
     },
   });
 

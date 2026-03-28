@@ -11,11 +11,15 @@ import {
 } from "../middleware/policyMiddleware";
 import {
   approveWorkspaceSupportRequestCtrl,
+  archiveWorkspaceCtrl,
   assignWorkspaceUserCtrl,
+  createWorkspaceExportRequestCtrl,
   createWorkspaceSupportRequestCtrl,
   createWorkspaceCtrl,
   deleteWorkspaceCtrl,
+  downloadWorkspaceExportForUserCtrl,
   denyWorkspaceSupportRequestCtrl,
+  emergencyResetWorkspaceOwnerPasswordCtrl,
   getWorkspaceBillingContextCtrl,
   getWorkspaceCtrl,
   getWorkspaceOverviewCtrl,
@@ -25,11 +29,14 @@ import {
   grantWorkspaceSupportAccessCtrl,
   lockWorkspaceCtrl,
   listWorkspaceMembersCtrl,
+  listWorkspaceExportRequestsCtrl,
   listWorkspaceSupportAccessCtrl,
   listWorkspaceSupportRequestsCtrl,
   listWorkspacesCtrl,
   removeWorkspaceUserCtrl,
   repairWorkspaceWhatsAppContactsCtrl,
+  restoreWorkspaceCtrl,
+  selfRestoreWorkspaceCtrl,
   revokeWorkspaceSupportAccessCtrl,
   searchWorkspaceKnowledgeCtrl,
   unlockWorkspaceCtrl,
@@ -71,6 +78,17 @@ router.delete(
   requirePlatformRoles(["super_admin", "developer"]),
   deleteWorkspaceCtrl
 );
+router.post(
+  "/:id/archive",
+  requirePlatformRoles(["super_admin", "developer"]),
+  archiveWorkspaceCtrl
+);
+router.post(
+  "/:id/restore",
+  requirePlatformRoles(["super_admin", "developer"]),
+  restoreWorkspaceCtrl
+);
+router.post("/:id/self-restore", selfRestoreWorkspaceCtrl);
 router.put(
   "/:id",
   requirePlatformRoles(["super_admin", "developer"]),
@@ -100,6 +118,14 @@ router.get(
   ]),
   listWorkspaceMembersCtrl
 );
+router.post(
+  "/:id/members/emergency-owner-reset",
+  requirePlatformRoles(["super_admin", "developer"]),
+  emergencyResetWorkspaceOwnerPasswordCtrl
+);
+router.get("/:id/export-requests", listWorkspaceExportRequestsCtrl);
+router.post("/:id/export-requests", createWorkspaceExportRequestCtrl);
+router.get("/:id/export-requests/:jobId/download", downloadWorkspaceExportForUserCtrl);
 router.post(
   "/:id/members",
   resolveWorkspaceContext,

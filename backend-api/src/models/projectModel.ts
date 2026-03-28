@@ -28,6 +28,7 @@ export async function findProjectById(id: string) {
     `SELECT *
      FROM projects
      WHERE id = $1
+       AND deleted_at IS NULL
      LIMIT 1`,
     [id]
   );
@@ -40,6 +41,7 @@ export async function findProjectsByWorkspace(workspaceId: string) {
     `SELECT *
      FROM projects
      WHERE workspace_id = $1
+       AND deleted_at IS NULL
      ORDER BY is_default DESC, created_at DESC`,
     [workspaceId]
   );
@@ -79,6 +81,7 @@ export async function findProjectsByUser(userId: string, workspaceId?: string | 
            AND w.owner_user_id = $1
        )
      )
+     AND p.deleted_at IS NULL
      ${workspaceClause}
      ORDER BY p.is_default DESC, p.created_at DESC`,
     params
@@ -93,6 +96,7 @@ export async function findDefaultProjectByWorkspace(workspaceId: string) {
      FROM projects
      WHERE workspace_id = $1
        AND is_default = true
+       AND deleted_at IS NULL
      ORDER BY created_at ASC
      LIMIT 1`,
     [workspaceId]

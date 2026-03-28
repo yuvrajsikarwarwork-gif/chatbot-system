@@ -12,7 +12,7 @@ import { workspaceService, type Workspace, type WorkspaceWalletSummary } from ".
 export default function WorkspaceBillingPage() {
   const router = useRouter();
   const { workspaceId } = router.query;
-  const { canViewPage } = useVisibility();
+  const { canViewPage, isPlatformOperator } = useVisibility();
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [wallet, setWallet] = useState<WorkspaceWalletSummary | null>(null);
   const [plans, setPlans] = useState<Plan[]>([]);
@@ -32,7 +32,7 @@ export default function WorkspaceBillingPage() {
       setError("");
       const [billingContext, planRows] = await Promise.all([
         workspaceService.getBillingContext(id),
-        planService.list(),
+        isPlatformOperator ? planService.list() : Promise.resolve([]),
       ]);
       const workspaceRow = billingContext.workspace;
       const walletRow = billingContext.wallet;
@@ -67,7 +67,7 @@ export default function WorkspaceBillingPage() {
   useEffect(() => {
     if (!canViewBillingPage) return;
     loadData().catch(console.error);
-  }, [workspaceId, canViewBillingPage]);
+  }, [workspaceId, canViewBillingPage, isPlatformOperator]);
 
   const handleSave = async () => {
     const id = String(workspaceId || "").trim();

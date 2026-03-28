@@ -4,6 +4,16 @@ import apiClient from "./apiClient";
 
 // Group the methods into the exact object expected by pages/flows.tsx
 export const flowService = {
+  getCapabilities: async (botId: string) => {
+    try {
+      const response = await apiClient.get(`/flows/bot/${botId}/capabilities`);
+      return response.data;
+    } catch (error) {
+      console.error("Error fetching flow capabilities:", error);
+      throw error;
+    }
+  },
+
   getFlow: async (botId: string, flowId?: string) => {
     try {
       const response = await apiClient.get(`/flows/bot/${botId}`, {
@@ -31,12 +41,13 @@ export const flowService = {
     }
   },
 
-  saveFlow: async (botId: string, flowData: any, flowId?: string) => {
+  saveFlow: async (botId: string, flowData: any, flowId?: string, flowName?: string) => {
     try {
       const response = await apiClient.post(`/flows/save`, {
         bot_id: botId, 
         flow_id: flowId,
-        flow_json: flowData 
+        flow_json: flowData,
+        flow_name: flowName,
       });
       return response.data;
     } catch (error) {
@@ -68,6 +79,7 @@ export const flowService = {
 
 // Also export them individually just in case other components use the named exports
 export const getFlow = flowService.getFlow;
+export const getFlowCapabilities = flowService.getCapabilities;
 export const createFlow = flowService.createFlow;
 export const saveFlow = flowService.saveFlow;
 export const deleteFlow = flowService.deleteFlow;

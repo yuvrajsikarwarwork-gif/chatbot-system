@@ -1,0 +1,141 @@
+{
+  "generatedAt": "2026-03-28T12:49:28.894Z",
+  "formatVersion": 2,
+  "summary": {
+    "members": 1,
+    "projects": 1,
+    "campaigns": 0,
+    "bots": 1,
+    "leads": 0,
+    "conversations": 0,
+    "contacts": 1,
+    "messages": 0,
+    "platformAccounts": 1,
+    "supportRequests": 0,
+    "auditLogs": 1
+  },
+  "workspace": {
+    "id": "f77a7a41-24e6-4c6a-8fa6-5f52f329e739",
+    "name": "Export Workspace 1774702168047",
+    "owner_user_id": "a88607cf-24fb-47f6-8140-7e6a74200433",
+    "deleted_at": "2026-03-28T12:49:28.272Z",
+    "purge_after": "2026-04-27T12:49:28.272Z",
+    "status": "archived",
+    "created_at": "2026-03-28T12:49:28.259Z",
+    "updated_at": "2026-03-28T12:49:28.259Z"
+  },
+  "members": [
+    {
+      "id": "ed0594db-c26e-48e9-96f5-43eb201c448c",
+      "workspace_id": "f77a7a41-24e6-4c6a-8fa6-5f52f329e739",
+      "user_id": "a88607cf-24fb-47f6-8140-7e6a74200433",
+      "role": "admin",
+      "status": "active",
+      "permissions_json": {},
+      "created_by": "020bf1ea-a158-41a6-a593-09caebc6ba30",
+      "created_at": "2026-03-28T12:49:28.270Z",
+      "updated_at": "2026-03-28T12:49:28.270Z",
+      "name": "Export Owner 1774702168047",
+      "email": "export-owner-1774702168047@example.test",
+      "global_role": "user"
+    }
+  ],
+  "projects": [
+    {
+      "id": "e4e164b4-22d3-416e-9d8d-06f4b8d032f4",
+      "workspace_id": "f77a7a41-24e6-4c6a-8fa6-5f52f329e739",
+      "name": "Export Project 1774702168047",
+      "description": null,
+      "status": "active",
+      "is_default": false,
+      "is_internal": false,
+      "onboarding_complete": false,
+      "created_at": "2026-03-28T12:49:28.274Z",
+      "updated_at": "2026-03-28T12:49:28.274Z",
+      "deleted_at": null
+    }
+  ],
+  "campaigns": [],
+  "bots": [
+    {
+      "id": "95a6f081-2b23-48d6-9a60-eff8ad579b84",
+      "user_id": "a88607cf-24fb-47f6-8140-7e6a74200433",
+      "name": "Export Bot 1774702168047",
+      "status": "inactive",
+      "flow_json": {
+        "edges": [],
+        "nodes": []
+      },
+      "created_at": "2026-03-28T12:49:28.277Z",
+      "wa_phone_number_id": null,
+      "wa_access_token": null,
+      "wa_verify_token": null,
+      "trigger_keywords": null,
+      "updated_at": "2026-03-28T12:49:28.277Z",
+      "settings": {},
+      "workspace_id": "f77a7a41-24e6-4c6a-8fa6-5f52f329e739",
+      "project_id": "e4e164b4-22d3-416e-9d8d-06f4b8d032f4",
+      "deleted_at": null
+    }
+  ],
+  "leads": [],
+  "conversations": [],
+  "contacts": [
+    {
+      "id": "eb6735b0-0480-4118-ad7c-2656acf32e53",
+      "bot_id": "95a6f081-2b23-48d6-9a60-eff8ad579b84",
+      "name": "Export Contact 1774702168047",
+      "phone": null,
+      "email": null,
+      "platform_user_id": "contact-1774702168047",
+      "created_at": "2026-03-28T12:49:28.284Z",
+      "updated_at": "2026-03-28T12:49:28.284Z",
+      "workspace_id": "f77a7a41-24e6-4c6a-8fa6-5f52f329e739"
+    }
+  ],
+  "messages": [],
+  "platformAccounts": [
+    {
+      "id": "b0b463d7-5c30-4135-b4a5-b59c3349f4fe",
+      "user_id": "a88607cf-24fb-47f6-8140-7e6a74200433",
+      "workspace_id": "f77a7a41-24e6-4c6a-8fa6-5f52f329e739",
+      "platform_type": "telegram",
+      "name": "Export Telegram 1774702168047",
+      "phone_number": null,
+      "account_id": "telegram-1774702168047",
+      "token": null,
+      "business_id": null,
+      "status": "inactive",
+      "metadata": {
+        "softDeleteRevocationReason": "workspace_scheduled_for_deletion"
+      },
+      "created_at": "2026-03-28T12:49:28.289Z",
+      "updated_at": "2026-03-28T12:49:28.289Z",
+      "project_id": "e4e164b4-22d3-416e-9d8d-06f4b8d032f4"
+    }
+  ],
+  "supportRequests": [],
+  "auditLogs": [
+    {
+      "id": "3d0071a6-d72c-4b49-850b-e2e3dccf1028",
+      "user_id": "020bf1ea-a158-41a6-a593-09caebc6ba30",
+      "workspace_id": "f77a7a41-24e6-4c6a-8fa6-5f52f329e739",
+      "project_id": null,
+      "action": "request_export",
+      "entity": "workspace_export",
+      "entity_id": "26",
+      "old_data": {},
+      "new_data": {
+        "requestedAt": "2026-03-28T12:49:28.600Z",
+        "requestedBy": "020bf1ea-a158-41a6-a593-09caebc6ba30",
+        "workspaceId": "f77a7a41-24e6-4c6a-8fa6-5f52f329e739",
+        "workspaceName": "Export Workspace 1774702168047"
+      },
+      "metadata": {},
+      "created_at": "2026-03-28T12:49:28.610Z",
+      "actor_user_id": "020bf1ea-a158-41a6-a593-09caebc6ba30",
+      "impersonated_user_id": null,
+      "support_access_id": null
+    }
+  ]
+}

@@ -14,7 +14,7 @@ import { confirmAction, notify } from "../../../store/uiStore";
 export default function WorkspaceSupportAccessPage() {
   const router = useRouter();
   const { workspaceId } = router.query;
-  const { canViewPage } = useVisibility();
+  const { isPlatformOperator } = useVisibility();
   const user = useAuthStore((state) => state.user);
   const memberships = useAuthStore((state) => state.memberships);
   const projectAccesses = useAuthStore((state) => state.projectAccesses);
@@ -24,10 +24,11 @@ export default function WorkspaceSupportAccessPage() {
   const [accessRows, setAccessRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [consentConfirmed, setConsentConfirmed] = useState(false);
+  const [consentNote, setConsentNote] = useState("");
 
-  const canViewSupportTab = canViewPage("workspaces");
   const normalizedWorkspaceId = String(workspaceId || "").trim();
-  const isPlatformOperator = ["super_admin", "developer"].includes(String(user?.role || ""));
+  const canViewSupportTab = isPlatformOperator;
 
   const load = async () => {
     if (!normalizedWorkspaceId || !canViewSupportTab) {
@@ -76,6 +77,8 @@ export default function WorkspaceSupportAccessPage() {
     try {
       const session = await authService.startSupportSession({
         workspaceId: workspace.id,
+        consentConfirmed,
+        consentNote,
       });
       setPermissionSnapshot({
         user: session.user || user,
@@ -88,7 +91,9 @@ export default function WorkspaceSupportAccessPage() {
       notify("Support session started.", "success");
       router.replace(`/workspaces/${workspace.id}`).catch(() => undefined);
     } catch (err: any) {
-      setError(err?.response?.data?.error || "Failed to start support session.");
+      const message = err?.response?.data?.error || "Failed to start support session.";
+      setError(message);
+      notify(message, "error");
     }
   };
 
@@ -107,7 +112,9 @@ export default function WorkspaceSupportAccessPage() {
       notify("Support request approved.", "success");
       await load();
     } catch (err: any) {
-      setError(err?.response?.data?.error || "Failed to approve support request.");
+      const message = err?.response?.data?.error || "Failed to approve support request.";
+      setError(message);
+      notify(message, "error");
     }
   };
 
@@ -126,7 +133,9 @@ export default function WorkspaceSupportAccessPage() {
       notify("Support request denied.", "success");
       await load();
     } catch (err: any) {
-      setError(err?.response?.data?.error || "Failed to deny support request.");
+      const message = err?.response?.data?.error || "Failed to deny support request.";
+      setError(message);
+      notify(message, "error");
     }
   };
 
@@ -146,7 +155,9 @@ export default function WorkspaceSupportAccessPage() {
       notify("Support access revoked.", "success");
       await load();
     } catch (err: any) {
-      setError(err?.response?.data?.error || "Failed to revoke support access.");
+      const message = err?.response?.data?.error || "Failed to revoke support access.";
+      setError(message);
+      notify(message, "error");
     }
   };
 
@@ -155,7 +166,7 @@ export default function WorkspaceSupportAccessPage() {
       {!canViewSupportTab ? (
         <PageAccessNotice
           title="Support access is restricted for this role"
-          description="Temporary support access is only available through the workspace detail console for authorized operators."
+          description="Temporary support access is limited to platform operators."
           href="/workspaces"
           ctaLabel="Open workspaces"
         />
@@ -182,13 +193,34 @@ export default function WorkspaceSupportAccessPage() {
                 </p>
               </div>
               {isPlatformOperator ? (
-                <button
-                  type="button"
-                  onClick={handleEnterWorkspace}
-                  className="rounded-[1.05rem] border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800 transition duration-200 hover:bg-sky-100"
-                >
-                  Enter Workspace
-                </button>
+                <div className="space-y-3">
+                  <label className="flex max-w-md items-start gap-3 rounded-[1rem] border border-[var(--line)] bg-[var(--surface-strong)] px-4 py-3 text-sm text-[var(--text)]">
+                    <input
+                      type="checkbox"
+                      checked={consentConfirmed}
+                      onChange={(event) => setConsentConfirmed(event.target.checked)}
+                      className="mt-1"
+                    />
+                    <span>
+                      I confirm the client approved temporary support entry for this workspace.
+                    </span>
+                  </label>
+                  <textarea
+                    value={consentNote}
+                    onChange={(event) => setConsentNote(event.target.value)}
+                    rows={3}
+                    placeholder="Optional consent note, ticket id, or customer approval reference"
+                    className="w-full max-w-md rounded-[1rem] border border-[var(--line)] bg-[var(--surface-strong)] px-4 py-3 text-sm text-[var(--text)]"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleEnterWorkspace}
+                    disabled={!consentConfirmed}
+                    className="rounded-[1.05rem] border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800 transition duration-200 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Enter Workspace
+                  </button>
+                </div>
               ) : null}
             </div>
           </section>

@@ -59,19 +59,25 @@ export interface EmailServicesSettings {
   status: {
     configured: boolean;
     secure: boolean;
+    provider: string;
   };
   previews: {
     smtpHost: string | null;
     smtpPort: number;
     smtpUser: string | null;
     smtpFrom: string | null;
+    smtpReplyTo: string | null;
     smtpPassConfigured: boolean;
+    testRecipient: string | null;
   };
   editable: {
+    provider: string;
     smtpHost: string;
     smtpPort: number;
     smtpUser: string;
     smtpFrom: string;
+    smtpReplyTo: string;
+    testRecipient: string;
   };
 }
 
@@ -90,8 +96,12 @@ export interface AiProvidersSettings {
   editable: {
     defaultProvider: string;
     defaultModel: string;
+    fallbackProvider: string;
+    fallbackModel: string;
     openaiModel: string;
     geminiModel: string;
+    temperature: number;
+    maxOutputTokens: number;
   };
 }
 
@@ -99,10 +109,15 @@ export interface BillingWalletSettings {
   status: {
     stripeConfigured: boolean;
     razorpayConfigured: boolean;
+    stripeWebhookSecretConfigured: boolean;
+    razorpayWebhookSecretConfigured: boolean;
+    billingProvider: string;
   };
   editable: {
+    billingProvider: string;
     stripePublicKey: string;
     razorpayKeyId: string;
+    billingWebhookUrl: string;
     defaultCurrency: string;
     walletAutoTopupDefaultEnabled: boolean;
     walletAutoTopupDefaultAmount: number;
@@ -152,10 +167,13 @@ export const platformSettingsService = {
   },
 
   updateEmailServices: async (payload: {
+    provider: string;
     smtpHost: string;
     smtpPort: number | string;
     smtpUser: string;
     smtpFrom: string;
+    smtpReplyTo?: string;
+    testRecipient?: string;
     smtpPass?: string;
   }): Promise<EmailServicesSettings> => {
     const res = await apiClient.put("/platform-settings/email-services", payload);
@@ -175,8 +193,12 @@ export const platformSettingsService = {
   updateAiProviders: async (payload: {
     defaultProvider: string;
     defaultModel: string;
+    fallbackProvider: string;
+    fallbackModel: string;
     openaiModel: string;
     geminiModel: string;
+    temperature: number | string;
+    maxOutputTokens: number | string;
     openaiApiKey?: string;
     geminiApiKey?: string;
   }): Promise<AiProvidersSettings> => {
@@ -190,10 +212,14 @@ export const platformSettingsService = {
   },
 
   updateBillingWallet: async (payload: {
+    billingProvider: string;
     stripePublicKey: string;
     stripeSecretKey?: string;
+    stripeWebhookSecret?: string;
     razorpayKeyId: string;
     razorpayKeySecret?: string;
+    razorpayWebhookSecret?: string;
+    billingWebhookUrl?: string;
     defaultCurrency: string;
     walletAutoTopupDefaultEnabled: boolean;
     walletAutoTopupDefaultAmount: number | string;

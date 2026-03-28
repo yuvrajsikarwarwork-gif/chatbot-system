@@ -41,7 +41,13 @@ export async function findWorkspaceMembership(workspaceId: string, userId: strin
 
 export async function findWorkspaceMembershipsByUser(userId: string) {
   const res = await query(
-    `SELECT wm.*, w.name AS workspace_name, w.status AS workspace_status, w.plan_id
+    `SELECT
+       wm.*,
+       w.name AS workspace_name,
+       w.status AS workspace_status,
+       w.plan_id,
+       w.deleted_at AS workspace_deleted_at,
+       w.purge_after AS workspace_purge_after
      FROM workspace_memberships wm
      JOIN workspaces w ON w.id = wm.workspace_id
      WHERE wm.user_id = $1

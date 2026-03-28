@@ -20,7 +20,12 @@ export const authService = {
     return res.data;
   },
 
-  startSupportSession: async (payload: { workspaceId: string; durationHours?: number }) => {
+  startSupportSession: async (payload: {
+    workspaceId: string;
+    durationHours?: number;
+    consentConfirmed: boolean;
+    consentNote?: string;
+  }) => {
     const res = await apiClient.post("/auth/support-session", payload);
     return res.data;
   },

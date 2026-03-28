@@ -9,9 +9,26 @@ interface NodeEditorProps {
   node: Node | null;
   onUpdate: (data: any) => void;
   onClose: () => void;
+  currentBotId?: string;
+  currentFlowId?: string | null;
+  flowOptions?: Array<{ id: string; flow_name?: string; name?: string; is_default?: boolean }>;
+  botOptions?: Array<{ id: string; name?: string }>;
+  flowOptionsByBot?: Record<
+    string,
+    Array<{ id: string; flow_name?: string; name?: string; is_default?: boolean }>
+  >;
 }
 
-export default function NodeEditor({ node, onUpdate, onClose }: NodeEditorProps) {
+export default function NodeEditor({
+  node,
+  onUpdate,
+  onClose,
+  currentBotId,
+  currentFlowId,
+  flowOptions = [],
+  botOptions = [],
+  flowOptionsByBot = {},
+}: NodeEditorProps) {
   const [isUploading, setIsUploading] = useState(false);
   const [draftData, setDraftData] = useState<any>(node?.data || {});
 
@@ -24,6 +41,15 @@ export default function NodeEditor({ node, onUpdate, onClose }: NodeEditorProps)
   const updateData = (key: string, value: any) => {
     setDraftData((prev: any) => ({ ...prev, [key]: value }));
   };
+
+  const gotoType = String(draftData.gotoType || "node").trim().toLowerCase();
+  const sameBotFlowOptions = flowOptions.filter(
+    (flow) => String(flow.id) !== String(currentFlowId || "")
+  );
+  const selectedTargetBotId = String(draftData.targetBotId || "").trim();
+  const targetBotFlowOptions = selectedTargetBotId
+    ? flowOptionsByBot[selectedTargetBotId] || []
+    : [];
 
   const handleMediaUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -368,15 +394,114 @@ export default function NodeEditor({ node, onUpdate, onClose }: NodeEditorProps)
   const RenderGotoNode = () => (
     <div className="space-y-4 pt-4 border-t border-slate-200">
       <div className="flex bg-slate-100 p-1 rounded-xl gap-1">
-        <button onClick={() => updateData('gotoType', 'node')} className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all ${draftData.gotoType !== 'bot' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}>Internal Node</button>
-        <button onClick={() => updateData('gotoType', 'bot')} className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all ${draftData.gotoType === 'bot' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}>External Bot</button>
+        <button
+          type="button"
+          onClick={() => updateData('gotoType', 'node')}
+          className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all ${gotoType === 'node' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}
+        >
+          Internal Node
+        </button>
+        <button
+          type="button"
+          onClick={() => updateData('gotoType', 'flow')}
+          className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all ${gotoType === 'flow' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}
+        >
+          Bot Flow
+        </button>
+        <button
+          type="button"
+          onClick={() => updateData('gotoType', 'bot')}
+          className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all ${gotoType === 'bot' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}
+        >
+          Other Bot
+        </button>
       </div>
-      <div>
-        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">
-          {draftData.gotoType === 'bot' ? 'Target Bot ID' : 'Target Node ID'}
-        </label>
-        <input className="w-full border border-slate-200 bg-slate-50 rounded-lg p-2.5 text-xs font-mono" placeholder={draftData.gotoType === 'bot' ? "bot_1" : "n_123"} value={draftData.targetNode || draftData.targetBotId || ""} onChange={(e) => updateData(draftData.gotoType === 'bot' ? 'targetBotId' : 'targetNode', e.target.value)} />
-      </div>
+      {gotoType === "node" ? (
+        <div>
+          <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">
+            Target Node ID
+          </label>
+          <input className="w-full border border-slate-200 bg-slate-50 rounded-lg p-2.5 text-xs font-mono" placeholder="n_123" value={draftData.targetNode || ""} onChange={(e) => updateData('targetNode', e.target.value)} />
+        </div>
+      ) : null}
+      {gotoType === "flow" ? (
+        <>
+          <div className="rounded-lg border border-blue-100 bg-blue-50 p-3 text-[11px] leading-5 text-blue-800">
+            Jump into another saved flow in this same bot. The target flow will start from its entry node.
+          </div>
+          <div>
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">
+              Target Flow
+            </label>
+            <select
+              className="w-full border border-slate-200 bg-slate-50 rounded-lg p-2.5 text-xs font-medium outline-none"
+              value={draftData.targetFlowId || ""}
+              onChange={(e) => updateData('targetFlowId', e.target.value)}
+            >
+              <option value="">Select flow</option>
+              {sameBotFlowOptions.map((flow) => (
+                <option key={flow.id} value={flow.id}>
+                  {flow.flow_name || flow.name || "Untitled flow"}{flow.is_default ? " (Default)" : ""}
+                </option>
+              ))}
+            </select>
+          </div>
+        </>
+      ) : null}
+      {gotoType === "bot" ? (
+        <>
+          <div className="rounded-lg border border-violet-100 bg-violet-50 p-3 text-[11px] leading-5 text-violet-800">
+            Transfer the conversation into another bot in the same workspace. The target bot will continue from the selected flow or its default flow.
+          </div>
+          <div>
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">
+              Target Bot
+            </label>
+            <select
+              className="w-full border border-slate-200 bg-slate-50 rounded-lg p-2.5 text-xs font-medium outline-none"
+              value={draftData.targetBotId || ""}
+              onChange={(e) => {
+                const nextBotId = e.target.value;
+                setDraftData((prev: any) => ({
+                  ...prev,
+                  targetBotId: nextBotId,
+                  targetFlowId:
+                    nextBotId && String(nextBotId) === String(prev.targetBotId || "")
+                      ? prev.targetFlowId || ""
+                      : "",
+                }));
+              }}
+            >
+              <option value="">Select bot</option>
+              {botOptions
+                .filter((bot) => String(bot.id) !== String(currentBotId || ""))
+                .map((bot) => (
+                  <option key={bot.id} value={bot.id}>
+                    {bot.name || "Untitled bot"}
+                  </option>
+                ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">
+              Target Flow (Optional)
+            </label>
+            <select
+              className="w-full border border-slate-200 bg-slate-50 rounded-lg p-2.5 text-xs font-medium outline-none"
+              value={draftData.targetFlowId || ""}
+              onChange={(e) => updateData('targetFlowId', e.target.value)}
+              disabled={!selectedTargetBotId}
+            >
+              <option value="">Use bot default flow</option>
+              {targetBotFlowOptions.map((flow) => (
+                <option key={flow.id} value={flow.id}>
+                  {flow.flow_name || flow.name || "Untitled flow"}{flow.is_default ? " (Default)" : ""}
+                </option>
+              ))}
+            </select>
+          </div>
+        </>
+      ) : null}
     </div>
   );
 
@@ -453,6 +578,41 @@ export default function NodeEditor({ node, onUpdate, onClose }: NodeEditorProps)
     </div>
   );
 
+  const RenderKnowledgeLookupNode = () => (
+    <div className="space-y-4 pt-4 border-t border-slate-200">
+      <div className="rounded-xl border border-sky-100 bg-sky-50 p-3 text-[11px] leading-5 text-sky-800">
+        Search the workspace knowledge base, store the matched documents, and optionally save merged text for the next message node.
+      </div>
+      <div>
+        <label className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-400">Lookup Query</label>
+        <textarea className="w-full rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-xs font-mono resize-none h-20" placeholder="Summarize the return policy for {{product_name}}" value={draftData.query || ""} onChange={(e) => updateData("query", e.target.value)} />
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-400">Save Results To</label>
+          <input className="w-full rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-xs font-mono" placeholder="knowledge_results" value={draftData.saveTo || ""} onChange={(e) => updateData("saveTo", e.target.value)} />
+        </div>
+        <div>
+          <label className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-400">Save Text To</label>
+          <input className="w-full rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-xs font-mono" placeholder="knowledge_text" value={draftData.saveTextTo || ""} onChange={(e) => updateData("saveTextTo", e.target.value)} />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-400">Scope</label>
+          <select className="w-full rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-xs outline-none" value={draftData.scope || "project"} onChange={(e) => updateData("scope", e.target.value)}>
+            <option value="project">Project</option>
+            <option value="workspace">Workspace</option>
+          </select>
+        </div>
+        <div>
+          <label className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-400">Result Limit</label>
+          <input type="number" min="1" max="10" className="w-full rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-xs" placeholder="3" value={draftData.limit || ""} onChange={(e) => updateData("limit", Number(e.target.value || 3))} />
+        </div>
+      </div>
+    </div>
+  );
+
   const renderSpecificNodeFields = () => {
     switch (node.type) {
       case 'input': return <RenderInputNode />;
@@ -473,6 +633,7 @@ export default function NodeEditor({ node, onUpdate, onClose }: NodeEditorProps)
       case 'goto': return <RenderGotoNode />;
       case 'condition': return <RenderConditionNode />;
       case 'lead_form': return <RenderLeadFormNode />;
+      case 'knowledge_lookup': return <RenderKnowledgeLookupNode />;
       case 'save': return <RenderSaveNode />;
       default: return null;
     }

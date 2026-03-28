@@ -5,6 +5,7 @@ import { Router } from "express";
 import {
   acceptInvite,
   createSupportWorkspaceSession,
+  downloadWorkspaceExport,
   endSupportWorkspaceSession,
   login,
   logout,
@@ -27,6 +28,7 @@ router.post("/accept-invite", acceptInvite);
 router.post("/request-password-reset", requestPasswordReset);
 router.post("/verify-password-reset-otp", verifyPasswordResetOtp);
 router.post("/reset-password", resetPassword);
+router.get("/workspace-export", downloadWorkspaceExport);
 
 router.get("/me", authMiddleware, me);
 router.post("/logout", authMiddleware, logout);

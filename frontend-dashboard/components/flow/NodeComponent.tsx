@@ -77,10 +77,12 @@ export default function NodeComponent({ id, data, type, selected }: any) {
         ) : isGotoNode ? (
           <div className="space-y-1">
             <div className="flex items-center gap-1 text-[9px] text-blue-500 font-black uppercase tracking-tight">
-              <Link size={10} /> {data.gotoType === 'bot' ? 'External Bot' : 'Internal Node'}
+              <Link size={10} /> {data.gotoType === 'bot' ? 'Other Bot' : data.gotoType === 'flow' ? 'Bot Flow' : 'Internal Node'}
             </div>
             <p className={`truncate font-bold bg-slate-50 p-1 rounded border ${!data.targetNode && !data.targetBotId ? "text-red-400 border-red-100 animate-pulse" : "text-slate-900 border-slate-100"}`}>
-              {data.targetNode || data.targetBotId || "Unconfigured"}
+              {data.gotoType === 'flow'
+                ? data.targetFlowId || "Unconfigured"
+                : data.targetNode || data.targetBotId || "Unconfigured"}
             </p>
           </div>
         ) : isAgentNode ? (

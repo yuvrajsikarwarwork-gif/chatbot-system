@@ -56,6 +56,37 @@ export default function App({ Component, pageProps }: AppProps) {
   }, [hasHydrated, router, router.pathname]);
 
   useEffect(() => {
+    if (!hasHydrated) {
+      return;
+    }
+
+    const token = sessionService.getToken();
+    const isPlatformOperator =
+      user?.role === "super_admin" || user?.role === "developer";
+    const recoveryRoute = "/account-deletion";
+    const workspaceScheduledForDeletion = Boolean(activeWorkspace?.workspace_deleted_at);
+
+    if (!token || isPlatformOperator) {
+      return;
+    }
+
+    if (workspaceScheduledForDeletion && router.pathname !== recoveryRoute) {
+      router.replace(recoveryRoute).catch(() => undefined);
+      return;
+    }
+
+    if (!workspaceScheduledForDeletion && router.pathname === recoveryRoute) {
+      router.replace(getHomeRoute()).catch(() => undefined);
+    }
+  }, [
+    activeWorkspace?.workspace_deleted_at,
+    hasHydrated,
+    router,
+    router.pathname,
+    user?.role,
+  ]);
+
+  useEffect(() => {
     if (!hasHydrated || !supportModeActive) {
       return;
     }

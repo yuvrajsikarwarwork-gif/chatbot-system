@@ -111,7 +111,8 @@ export async function findLeadsByUser(userId: string, filters: LeadFilters) {
      LEFT JOIN flows f ON f.id = l.flow_id
      LEFT JOIN lists ls ON ls.id = l.list_id
      LEFT JOIN contacts ct ON ct.id = l.contact_id
-     WHERE ${where.join(" AND ")}
+     WHERE l.deleted_at IS NULL
+       AND ${where.join(" AND ")}
      ORDER BY l.created_at DESC`,
     params
   );
@@ -138,6 +139,7 @@ export async function findLeadById(id: string, userId: string) {
      LEFT JOIN flows f ON f.id = l.flow_id
      LEFT JOIN lists ls ON ls.id = l.list_id
      WHERE l.id = $1
+       AND l.deleted_at IS NULL
        AND (
          l.user_id = $2
          OR (
@@ -223,9 +225,12 @@ export async function findLeadListSummariesByUser(
      LEFT JOIN (
        SELECT list_id, COUNT(*)::int AS lead_count
        FROM leads
+       WHERE deleted_at IS NULL
        GROUP BY list_id
      ) ld ON ld.list_id = l.id
      WHERE (
+         c.deleted_at IS NULL
+         AND (
          l.user_id = $1
          OR (
            c.workspace_id IS NOT NULL
@@ -233,10 +238,10 @@ export async function findLeadListSummariesByUser(
              SELECT workspace_id
              FROM workspace_memberships
              WHERE user_id = $1
-               AND status = 'active'
+             AND status = 'active'
            )
          )
-       )
+       ))
        ${campaignCondition}
        ${workspaceCondition}
        ${projectCondition}

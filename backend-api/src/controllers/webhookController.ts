@@ -18,6 +18,44 @@ import { decryptSecret } from "../utils/encryption";
 import { applyTemplateStatusUpdate } from "./templateController";
 import { normalizeWhatsAppPlatformUserId } from "../services/contactIdentityService";
 
+async function isWorkspaceOrBotSoftDeleted(input: {
+  workspaceId?: string | null;
+  botId?: string | null;
+}) {
+  const workspaceId = String(input.workspaceId || "").trim() || null;
+  const botId = String(input.botId || "").trim() || null;
+
+  if (workspaceId) {
+    const workspaceRes = await query(
+      `SELECT id
+       FROM workspaces
+       WHERE id = $1
+         AND deleted_at IS NOT NULL
+       LIMIT 1`,
+      [workspaceId]
+    );
+    if (workspaceRes.rows[0]) {
+      return true;
+    }
+  }
+
+  if (botId) {
+    const botRes = await query(
+      `SELECT id
+       FROM bots
+       WHERE id = $1
+         AND deleted_at IS NOT NULL
+       LIMIT 1`,
+      [botId]
+    );
+    if (botRes.rows[0]) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function getLegacyVerifyToken() {
   return process.env.WA_VERIFY_TOKEN || process.env.VERIFY_TOKEN;
 }
@@ -376,11 +414,17 @@ export const receiveMessage = async (req: Request, res: Response) => {
         : await findLegacyWhatsAppBotMatch(phoneNumberId);
 
     const botId = routeBotId || matchedChannel?.bot_id || matchedIntegration?.bot_id;
+    const workspaceId = matchedChannel?.workspace_id || matchedIntegration?.workspace_id || null;
 
     if (!botId) {
       console.warn(
         `No active WhatsApp integration found for phone number id '${phoneNumberId}'.`
       );
+      return res.sendStatus(200);
+    }
+
+    if (await isWorkspaceOrBotSoftDeleted({ workspaceId, botId })) {
+      console.log(`Dropping webhook for soft-deleted tenant bot=${botId} workspace=${workspaceId || "n/a"}`);
       return res.sendStatus(200);
     }
 
@@ -412,7 +456,8 @@ export const receiveMessage = async (req: Request, res: Response) => {
        JOIN contacts ct ON c.contact_id = ct.id
        WHERE ct.platform_user_id = $1
          AND c.bot_id = $2
-         AND c.channel = 'whatsapp'`,
+         AND c.channel = 'whatsapp'
+         AND c.deleted_at IS NULL`,
       [from, botId]
     );
 

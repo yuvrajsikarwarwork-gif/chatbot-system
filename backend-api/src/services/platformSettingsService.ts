@@ -39,27 +39,38 @@ type GlobalIntegrationsStoredSettings = {
 };
 
 type EmailServicesStoredSettings = {
+  provider?: string;
   smtpHost?: string;
   smtpPort?: number | string;
   smtpUser?: string;
   smtpPass?: unknown;
   smtpFrom?: string;
+  smtpReplyTo?: string;
+  testRecipient?: string;
 };
 
 type AiProvidersStoredSettings = {
   defaultProvider?: string;
   defaultModel?: string;
+  fallbackProvider?: string;
+  fallbackModel?: string;
   openaiApiKey?: unknown;
   openaiModel?: string;
   geminiApiKey?: unknown;
   geminiModel?: string;
+  temperature?: number | string;
+  maxOutputTokens?: number | string;
 };
 
 type BillingWalletStoredSettings = {
+  billingProvider?: string;
   stripePublicKey?: string;
   stripeSecretKey?: unknown;
+  stripeWebhookSecret?: unknown;
   razorpayKeyId?: string;
   razorpayKeySecret?: unknown;
+  razorpayWebhookSecret?: unknown;
+  billingWebhookUrl?: string;
   defaultCurrency?: string;
   walletAutoTopupDefaultEnabled?: boolean;
   walletAutoTopupDefaultAmount?: number | string;
@@ -303,29 +314,38 @@ export async function listGlobalIntegrationsAuditHistoryService() {
 }
 
 function resolveEmailServices(stored: EmailServicesStoredSettings) {
+  const provider = String(stored.provider || "smtp").trim().toLowerCase();
   const smtpHost = String(stored.smtpHost || env.SMTP_HOST || "").trim();
   const smtpPort = toSafeNumber(stored.smtpPort || env.SMTP_PORT, 587);
   const smtpUser = String(stored.smtpUser || env.SMTP_USER || "").trim();
   const smtpPass = decryptSecret(stored.smtpPass) || String(env.SMTP_PASS || "").trim();
   const smtpFrom = String(stored.smtpFrom || env.SMTP_FROM || smtpUser || "").trim();
+  const smtpReplyTo = String(stored.smtpReplyTo || "").trim();
+  const testRecipient = String(stored.testRecipient || smtpFrom || "").trim();
 
   return {
     status: {
       configured: Boolean(smtpHost && smtpUser && smtpPass),
       secure: smtpPort === 465,
+      provider,
     },
     previews: {
       smtpHost: smtpHost || null,
       smtpPort,
       smtpUser: smtpUser || null,
       smtpFrom: smtpFrom || null,
+      smtpReplyTo: smtpReplyTo || null,
       smtpPassConfigured: Boolean(smtpPass),
+      testRecipient: testRecipient || null,
     },
     editable: {
+      provider,
       smtpHost,
       smtpPort,
       smtpUser,
       smtpFrom,
+      smtpReplyTo,
+      testRecipient,
     },
   };
 }
@@ -338,18 +358,24 @@ export async function getEmailServicesSettingsService() {
 
 export async function updateEmailServicesSettingsService(input: {
   userId: string;
+  provider: string;
   smtpHost: string;
   smtpPort: number | string;
   smtpUser: string;
   smtpFrom: string;
+  smtpReplyTo?: string | null;
+  testRecipient?: string | null;
   smtpPass?: string | null;
 }) {
   const existing = sanitizeEmailSettings(await getPlatformSettingsRecord(EMAIL_SERVICES_KEY));
   const next: EmailServicesStoredSettings = {
+    provider: String(input.provider || "smtp").trim().toLowerCase(),
     smtpHost: String(input.smtpHost || "").trim(),
     smtpPort: toSafeNumber(input.smtpPort, 587),
     smtpUser: String(input.smtpUser || "").trim(),
     smtpFrom: String(input.smtpFrom || "").trim(),
+    smtpReplyTo: String(input.smtpReplyTo || "").trim(),
+    testRecipient: String(input.testRecipient || "").trim(),
     smtpPass:
       typeof input.smtpPass === "string" && input.smtpPass.trim()
         ? encryptSecret(input.smtpPass.trim())
@@ -397,7 +423,7 @@ export async function testEmailServicesSettingsService() {
   await transporter.verify();
   return {
     ok: true,
-    detail: "SMTP connection verified successfully.",
+    detail: `SMTP connection verified successfully${settings.editable.testRecipient ? ` for ${settings.editable.testRecipient}` : ""}.`,
     checkedAt: new Date().toISOString(),
   };
 }
@@ -405,8 +431,12 @@ export async function testEmailServicesSettingsService() {
 function resolveAiProviders(stored: AiProvidersStoredSettings) {
   const defaultProvider = String(stored.defaultProvider || "openai").trim().toLowerCase();
   const defaultModel = String(stored.defaultModel || stored.openaiModel || "gpt-5.4-mini").trim();
+  const fallbackProvider = String(stored.fallbackProvider || defaultProvider).trim().toLowerCase();
+  const fallbackModel = String(stored.fallbackModel || stored.geminiModel || defaultModel).trim();
   const openaiModel = String(stored.openaiModel || "gpt-5.4-mini").trim();
   const geminiModel = String(stored.geminiModel || "gemini-1.5-pro").trim();
+  const temperature = Math.max(0, Math.min(2, toSafeNumber(stored.temperature, 0.2)));
+  const maxOutputTokens = Math.max(64, toSafeNumber(stored.maxOutputTokens, 1024));
   return {
     status: {
       openaiConfigured: Boolean(decryptSecret(stored.openaiApiKey)),
@@ -416,8 +446,12 @@ function resolveAiProviders(stored: AiProvidersStoredSettings) {
     editable: {
       defaultProvider,
       defaultModel,
+      fallbackProvider,
+      fallbackModel,
       openaiModel,
       geminiModel,
+      temperature,
+      maxOutputTokens,
     },
   };
 }
@@ -432,8 +466,12 @@ export async function updateAiProvidersSettingsService(input: {
   userId: string;
   defaultProvider: string;
   defaultModel: string;
+  fallbackProvider: string;
+  fallbackModel: string;
   openaiModel: string;
   geminiModel: string;
+  temperature?: number | string;
+  maxOutputTokens?: number | string;
   openaiApiKey?: string | null;
   geminiApiKey?: string | null;
 }) {
@@ -441,8 +479,12 @@ export async function updateAiProvidersSettingsService(input: {
   const next: AiProvidersStoredSettings = {
     defaultProvider: String(input.defaultProvider || "openai").trim().toLowerCase(),
     defaultModel: String(input.defaultModel || "").trim(),
+    fallbackProvider: String(input.fallbackProvider || input.defaultProvider || "openai").trim().toLowerCase(),
+    fallbackModel: String(input.fallbackModel || input.defaultModel || "").trim(),
     openaiModel: String(input.openaiModel || "").trim(),
     geminiModel: String(input.geminiModel || "").trim(),
+    temperature: Math.max(0, Math.min(2, toSafeNumber(input.temperature, 0.2))),
+    maxOutputTokens: Math.max(64, toSafeNumber(input.maxOutputTokens, 1024)),
     openaiApiKey:
       typeof input.openaiApiKey === "string" && input.openaiApiKey.trim()
         ? encryptSecret(input.openaiApiKey.trim())
@@ -468,14 +510,23 @@ export async function updateAiProvidersSettingsService(input: {
 }
 
 function resolveBillingWallet(stored: BillingWalletStoredSettings) {
+  const billingProvider = String(stored.billingProvider || "hybrid").trim().toLowerCase();
+  const stripeWebhookSecretConfigured = Boolean(decryptSecret(stored.stripeWebhookSecret));
+  const razorpayWebhookSecretConfigured = Boolean(decryptSecret(stored.razorpayWebhookSecret));
+  const billingWebhookUrl = String(stored.billingWebhookUrl || "").trim() || `${normalizeBaseUrl(String(env.PUBLIC_API_BASE_URL || ""), `http://localhost:${env.PORT || "4000"}`)}/api/billing/webhook`;
   return {
     status: {
       stripeConfigured: Boolean(stored.stripePublicKey && decryptSecret(stored.stripeSecretKey)),
       razorpayConfigured: Boolean(stored.razorpayKeyId && decryptSecret(stored.razorpayKeySecret)),
+      stripeWebhookSecretConfigured,
+      razorpayWebhookSecretConfigured,
+      billingProvider,
     },
     editable: {
+      billingProvider,
       stripePublicKey: String(stored.stripePublicKey || "").trim(),
       razorpayKeyId: String(stored.razorpayKeyId || "").trim(),
+      billingWebhookUrl,
       defaultCurrency: String(stored.defaultCurrency || "INR").trim().toUpperCase(),
       walletAutoTopupDefaultEnabled: Boolean(stored.walletAutoTopupDefaultEnabled),
       walletAutoTopupDefaultAmount: toSafeNumber(stored.walletAutoTopupDefaultAmount, 0),
@@ -492,10 +543,14 @@ export async function getBillingWalletSettingsService() {
 
 export async function updateBillingWalletSettingsService(input: {
   userId: string;
+  billingProvider: string;
   stripePublicKey: string;
   stripeSecretKey?: string | null;
+  stripeWebhookSecret?: string | null;
   razorpayKeyId: string;
   razorpayKeySecret?: string | null;
+  razorpayWebhookSecret?: string | null;
+  billingWebhookUrl?: string | null;
   defaultCurrency: string;
   walletAutoTopupDefaultEnabled: boolean;
   walletAutoTopupDefaultAmount: number | string;
@@ -503,16 +558,26 @@ export async function updateBillingWalletSettingsService(input: {
 }) {
   const existing = sanitizeBillingWalletSettings(await getPlatformSettingsRecord(BILLING_WALLET_KEY));
   const next: BillingWalletStoredSettings = {
+    billingProvider: String(input.billingProvider || "hybrid").trim().toLowerCase(),
     stripePublicKey: String(input.stripePublicKey || "").trim(),
     stripeSecretKey:
       typeof input.stripeSecretKey === "string" && input.stripeSecretKey.trim()
         ? encryptSecret(input.stripeSecretKey.trim())
         : existing.stripeSecretKey || null,
+    stripeWebhookSecret:
+      typeof input.stripeWebhookSecret === "string" && input.stripeWebhookSecret.trim()
+        ? encryptSecret(input.stripeWebhookSecret.trim())
+        : existing.stripeWebhookSecret || null,
     razorpayKeyId: String(input.razorpayKeyId || "").trim(),
     razorpayKeySecret:
       typeof input.razorpayKeySecret === "string" && input.razorpayKeySecret.trim()
         ? encryptSecret(input.razorpayKeySecret.trim())
         : existing.razorpayKeySecret || null,
+    razorpayWebhookSecret:
+      typeof input.razorpayWebhookSecret === "string" && input.razorpayWebhookSecret.trim()
+        ? encryptSecret(input.razorpayWebhookSecret.trim())
+        : existing.razorpayWebhookSecret || null,
+    billingWebhookUrl: String(input.billingWebhookUrl || "").trim(),
     defaultCurrency: String(input.defaultCurrency || "INR").trim().toUpperCase(),
     walletAutoTopupDefaultEnabled: Boolean(input.walletAutoTopupDefaultEnabled),
     walletAutoTopupDefaultAmount: toSafeNumber(input.walletAutoTopupDefaultAmount, 0),

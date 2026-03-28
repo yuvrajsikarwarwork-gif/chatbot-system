@@ -6,9 +6,17 @@ interface FlowSidebarProps {
   isOpen: boolean;
   onAddNode: (type: string) => void;
   canEditWorkflow: boolean;
+  allowedNodeTypes?: string[];
+  disabledReasons?: Record<string, string>;
 }
 
-export default function FlowSidebar({ isOpen, onAddNode, canEditWorkflow }: FlowSidebarProps) {
+export default function FlowSidebar({
+  isOpen,
+  onAddNode,
+  canEditWorkflow,
+  allowedNodeTypes = [],
+  disabledReasons = {},
+}: FlowSidebarProps) {
   const [tooltip, setTooltip] = useState<{ visible: boolean, x: number, y: number, item: any | null }>({ visible: false, x: 0, y: 0, item: null });
 
   const handleTooltip = (e: React.MouseEvent, item: any) => {
@@ -34,17 +42,28 @@ export default function FlowSidebar({ isOpen, onAddNode, canEditWorkflow }: Flow
               <div className="flex flex-col gap-3">
                 {cat.items.map((node) => {
                   const Icon = node.icon;
+                  const nodeAllowed = allowedNodeTypes.length === 0 || allowedNodeTypes.includes(node.type);
+                  const isDisabled = !canEditWorkflow || !nodeAllowed;
+                  const disabledReason = disabledReasons[node.type] || "";
                   return (
                     <div key={node.type} className="flex items-center">
                       <button 
                         onDragStart={(e) => handleDragStart(e, node.type)} 
-                        draggable={canEditWorkflow}
-                        disabled={!canEditWorkflow}
+                        draggable={!isDisabled}
+                        disabled={isDisabled}
                         onClick={() => onAddNode(node.type)} 
-                        className="flex-1 flex items-center gap-4 px-4 py-3 bg-slate-50 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50 text-slate-700 rounded-xl text-xs font-bold border border-slate-100 hover:border-blue-400 hover:shadow-lg transition-all active:scale-95 group"
+                        title={disabledReason}
+                        className="flex-1 overflow-hidden flex items-center gap-4 px-4 py-3 bg-slate-50 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50 text-slate-700 rounded-xl text-xs font-bold border border-slate-100 hover:border-blue-400 hover:shadow-lg transition-all active:scale-95 group"
                       >
-                        <div className={`p-2 rounded-lg bg-white text-${cat.color}-600 shadow-sm group-hover:bg-${cat.color}-600 group-hover:text-white transition-all`}><Icon size={16} /></div>
-                        <span className="truncate">{node.label}</span>
+                        <div className={`shrink-0 p-2 rounded-lg bg-white text-${cat.color}-600 shadow-sm group-hover:bg-${cat.color}-600 group-hover:text-white transition-all`}><Icon size={16} /></div>
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-left">{node.label}</div>
+                          {!canEditWorkflow ? null : !nodeAllowed && disabledReason ? (
+                            <div className="mt-1 line-clamp-2 break-words text-left text-[10px] font-semibold leading-4 tracking-[0.04em] text-rose-500">
+                              {disabledReason}
+                            </div>
+                          ) : null}
+                        </div>
                       </button>
                       <button onMouseEnter={(e) => handleTooltip(e, { ...node, color: cat.color })} onMouseLeave={() => setTooltip({ ...tooltip, visible: false })} className="p-3 ml-2 text-slate-300 hover:text-blue-500 cursor-help"><HelpCircle size={16} /></button>
                     </div>

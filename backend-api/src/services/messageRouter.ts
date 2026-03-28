@@ -333,6 +333,7 @@ export const routeMessage = async (
     FROM conversations c
     JOIN contacts ct ON c.contact_id = ct.id
     WHERE c.id = $1
+      AND c.deleted_at IS NULL
   `, [conversationId]);
 
   const context = convRes.rows[0];
@@ -358,6 +359,27 @@ export const routeMessage = async (
   } = context;
   const normalizedChannel = normalizePlatform(platform || channel);
   const conversationVariables = parseJsonLike<Record<string, any>>(conversationVariablesRaw) || {};
+
+  const tenantDeletionRes = await query(
+    `SELECT
+       EXISTS (
+         SELECT 1
+         FROM workspaces
+         WHERE id = $1
+           AND deleted_at IS NOT NULL
+       ) AS workspace_deleted,
+       EXISTS (
+         SELECT 1
+         FROM bots
+         WHERE id = $2
+           AND deleted_at IS NOT NULL
+       ) AS bot_deleted`,
+    [workspaceId || null, botId]
+  );
+  if (tenantDeletionRes.rows[0]?.workspace_deleted || tenantDeletionRes.rows[0]?.bot_deleted) {
+    console.log(`[Router] Dropping outbound message for soft-deleted tenant conversation=${conversationId}`);
+    return;
+  }
 
   if (normalizedChannel === "whatsapp" && !platformAccountId) {
     throw {
@@ -462,6 +484,7 @@ export const routeMessage = async (
          FROM leads
          WHERE contact_id = $1
            AND bot_id = $2
+           AND deleted_at IS NULL
            AND COALESCE(project_id, '00000000-0000-0000-0000-000000000000'::uuid) =
                COALESCE($3, '00000000-0000-0000-0000-000000000000'::uuid)
          ORDER BY created_at DESC

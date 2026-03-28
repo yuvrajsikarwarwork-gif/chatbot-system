@@ -1,7 +1,7 @@
 import { useRouter } from "next/router";
 import { 
   PanelLeft, Download, Upload, Undo2, Redo2, 
-  Trash2, Save, CheckCircle, LogOut, Clock 
+  Trash2, Save, CheckCircle, LogOut, Clock, Copy, ClipboardPaste, Pencil
 } from "lucide-react";
 
 interface FlowHeaderProps {
@@ -13,8 +13,10 @@ interface FlowHeaderProps {
   canDeleteFlowAction: boolean;
   flowSummaries: Array<{ id: string; flow_name?: string; is_default?: boolean }>;
   currentFlowId: string | null;
+  currentFlowName: string;
   onSelectFlow: (flowId: string) => void;
   onCreateFlow: () => void;
+  onEditFlowName: () => void;
   onDownloadSample: () => void;
   fileInputRef: React.RefObject<HTMLInputElement | null>;
   onFileUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
@@ -23,20 +25,23 @@ interface FlowHeaderProps {
   canUndo: boolean;
   canRedo: boolean;
   onDeleteSelected: () => void;
+  onCopySelected: () => void;
+  onPasteSelected: () => void;
   onDeleteFlow: () => void;
   onSave: () => void;
   isDirty: boolean;
   isSaving: boolean;
   canDeleteFlow: boolean;
+  canPasteSelection: boolean;
 }
 
 export default function FlowHeader({
   isSidebarOpen, setIsSidebarOpen, botName, botId,
   canEditWorkflow, canDeleteFlowAction,
-  flowSummaries, currentFlowId, onSelectFlow, onCreateFlow,
+  flowSummaries, currentFlowId, currentFlowName, onSelectFlow, onCreateFlow, onEditFlowName,
   onDownloadSample, fileInputRef, onFileUpload,
   onUndo, onRedo, canUndo, canRedo,
-  onDeleteSelected, onDeleteFlow, onSave, isDirty, isSaving, canDeleteFlow
+  onDeleteSelected, onCopySelected, onPasteSelected, onDeleteFlow, onSave, isDirty, isSaving, canDeleteFlow, canPasteSelection
 }: FlowHeaderProps) {
   const router = useRouter();
 
@@ -71,6 +76,23 @@ export default function FlowHeader({
               New Flow
             </button>
           ) : null}
+          {currentFlowId ? (
+            <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+              <span className="max-w-[220px] truncate text-xs font-semibold text-slate-700">
+                {currentFlowName || "Untitled flow"}
+              </span>
+              {canEditWorkflow ? (
+                <button
+                  type="button"
+                  onClick={onEditFlowName}
+                  className="rounded-lg p-1 text-slate-500 transition hover:bg-white hover:text-blue-600"
+                  title="Edit flow name"
+                >
+                  <Pencil size={14} />
+                </button>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </div>
       
@@ -93,6 +115,9 @@ export default function FlowHeader({
           <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200 shadow-inner">
             <button onClick={onUndo} disabled={!canUndo} className="p-2 hover:bg-white disabled:opacity-20 rounded-lg transition-all text-slate-600"><Undo2 size={16} /></button>
             <button onClick={onRedo} disabled={!canRedo} className="p-2 hover:bg-white disabled:opacity-20 rounded-lg transition-all text-slate-600"><Redo2 size={16} /></button>
+            <div className="w-px h-4 bg-slate-300 mx-1"></div>
+            <button onClick={onCopySelected} className="p-2 hover:bg-white rounded-lg transition-all text-slate-600" title="Copy selected nodes"><Copy size={16} /></button>
+            <button onClick={onPasteSelected} disabled={!canPasteSelection} className="p-2 hover:bg-white disabled:opacity-20 rounded-lg transition-all text-slate-600" title="Paste copied nodes"><ClipboardPaste size={16} /></button>
           </div>
         ) : null}
         {canEditWorkflow || (canDeleteFlow && canDeleteFlowAction) ? (

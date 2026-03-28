@@ -44,6 +44,14 @@ interface CompatibilityPlatformAccount {
   bot_id: string;
 }
 
+interface RemoteRevocationResult {
+  attempted: boolean;
+  ok: boolean;
+  provider: string;
+  targets: string[];
+  message?: string | null;
+}
+
 const PLATFORM_REQUIREMENTS: Record<
   SupportedPlatform,
   { requiredFields: (keyof ConnectionInput)[]; label: string }
@@ -180,6 +188,139 @@ function getMetadata(record: CompatibilityPlatformAccount | null | undefined) {
   return record?.metadata && typeof record.metadata === "object" ? record.metadata : {};
 }
 
+function extractRemoteRevocationTargets(account: CompatibilityPlatformAccount) {
+  const metadata = getMetadata(account);
+  const targets = new Set<string>();
+  const platform = String(account.platform_type || "").toLowerCase();
+
+  if (platform === "whatsapp") {
+    const phoneNumberId =
+      String(
+        metadata.phoneNumberId ||
+          account.account_id ||
+          account.phone_number ||
+          ""
+      ).trim();
+    if (phoneNumberId) {
+      targets.add(phoneNumberId);
+    }
+  }
+
+  if (platform === "facebook" || platform === "instagram") {
+    const accountId = String(account.account_id || "").trim();
+    if (accountId) {
+      targets.add(accountId);
+    }
+  }
+
+  return Array.from(targets);
+}
+
+async function revokeMetaSubscriptions(
+  account: CompatibilityPlatformAccount
+): Promise<RemoteRevocationResult> {
+  const decryptedToken = decryptSecret(account.token);
+  const targets = extractRemoteRevocationTargets(account);
+  if (!decryptedToken || !targets.length) {
+    return {
+      attempted: false,
+      ok: false,
+      provider: "meta",
+      targets,
+      message: "No remote token or account target was available for revocation.",
+    };
+  }
+
+  const graphVersion = process.env.META_GRAPH_VERSION || "v23.0";
+  const failures: string[] = [];
+
+  for (const target of targets) {
+    try {
+      await axios.delete(
+        `https://graph.facebook.com/${graphVersion}/${encodeURIComponent(target)}/subscribed_apps`,
+        {
+          params: {
+            access_token: decryptedToken,
+          },
+        }
+      );
+    } catch (error: any) {
+      failures.push(
+        `${target}: ${String(
+          error?.response?.data?.error?.message || error?.message || "Remote revocation failed"
+        )}`
+      );
+    }
+  }
+
+  return {
+    attempted: true,
+    ok: failures.length === 0,
+    provider: "meta",
+    targets,
+    message: failures.length ? failures.join(" | ") : null,
+  };
+}
+
+async function revokeTelegramWebhook(
+  account: CompatibilityPlatformAccount
+): Promise<RemoteRevocationResult> {
+  const decryptedToken = decryptSecret(account.token);
+  if (!decryptedToken) {
+    return {
+      attempted: false,
+      ok: false,
+      provider: "telegram",
+      targets: [],
+      message: "No bot token was available for Telegram webhook revocation.",
+    };
+  }
+
+  try {
+    await axios.post(`https://api.telegram.org/bot${decryptedToken}/deleteWebhook`, {
+      drop_pending_updates: true,
+    });
+    return {
+      attempted: true,
+      ok: true,
+      provider: "telegram",
+      targets: [String(account.account_id || account.name || "telegram-bot")],
+      message: null,
+    };
+  } catch (error: any) {
+    return {
+      attempted: true,
+      ok: false,
+      provider: "telegram",
+      targets: [String(account.account_id || account.name || "telegram-bot")],
+      message: String(
+        error?.response?.data?.description || error?.message || "Telegram webhook revocation failed"
+      ),
+    };
+  }
+}
+
+export async function revokeRemotePlatformConnectionService(
+  account: CompatibilityPlatformAccount
+): Promise<RemoteRevocationResult> {
+  const platform = String(account.platform_type || "").toLowerCase();
+  if (["whatsapp", "facebook", "instagram"].includes(platform)) {
+    return revokeMetaSubscriptions(account);
+  }
+
+  if (platform === "telegram") {
+    return revokeTelegramWebhook(account);
+  }
+
+  return {
+    attempted: false,
+    ok: false,
+    provider: platform || "unknown",
+    targets: [],
+    message: "Remote revocation is not required for this provider.",
+  };
+}
+
 function sanitizeIntegration(record: CompatibilityPlatformAccount) {
   const metadata = getMetadata(record);
   const currentWebhookUrl =
@@ -281,6 +422,7 @@ async function findCompatibilityAccountsByBot(
      WHERE pa.workspace_id = $1
        AND pa.project_id = $2
        AND pa.metadata->>'legacyBotId' = $3
+       AND pa.status = 'active'
        ${platformClause}
      ORDER BY pa.created_at DESC`,
     params
@@ -697,6 +839,16 @@ export async function deleteIntegrationService(id: string, userId: string) {
   }
 
   await ensureBotAccess(integration.bot_id, userId);
+  const remoteRevocation = await revokeRemotePlatformConnectionService(integration).catch(
+    (error: any) =>
+      ({
+        attempted: true,
+        ok: false,
+        provider: String(integration.platform_type || "unknown"),
+        targets: extractRemoteRevocationTargets(integration),
+        message: String(error?.message || error || "Remote revocation failed"),
+      }) satisfies RemoteRevocationResult
+  );
   await logAuditSafe({
     userId,
     workspaceId: integration.workspace_id,
@@ -705,6 +857,9 @@ export async function deleteIntegrationService(id: string, userId: string) {
     entity: "integration",
     entityId: id,
     oldData: integration as unknown as Record<string, unknown>,
+    metadata: {
+      remoteRevocation,
+    },
   });
   await query(`DELETE FROM platform_accounts WHERE id = $1`, [id]);
 }
@@ -719,8 +874,12 @@ export async function findLegacyWhatsAppBotMatch(phoneNumberId: string) {
        pa.*,
        (pa.metadata->>'legacyBotId') AS bot_id
      FROM platform_accounts pa
+     JOIN bots b ON b.id = NULLIF(pa.metadata->>'legacyBotId', '')::uuid
+     LEFT JOIN workspaces w ON w.id = pa.workspace_id
      WHERE pa.platform_type = 'whatsapp'
        AND pa.status = 'active'
+       AND b.deleted_at IS NULL
+       AND (w.id IS NULL OR w.deleted_at IS NULL)
        AND pa.metadata->>'legacyBotId' IS NOT NULL
        AND (
          pa.account_id = $1

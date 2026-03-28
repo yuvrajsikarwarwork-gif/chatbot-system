@@ -3,11 +3,15 @@ import { NextFunction, Response } from "express";
 import { AuthRequest } from "../middleware/authMiddleware";
 import {
   approveWorkspaceSupportRequestService,
+  archiveWorkspaceService,
   assignUserWorkspaceService,
   createWorkspaceSupportRequestService,
+  createWorkspaceExportRequestService,
   createWorkspaceService,
   deleteWorkspaceService,
+  downloadWorkspaceExportForUserService,
   denyWorkspaceSupportRequestService,
+  emergencyResetWorkspaceOwnerPasswordService,
   getWorkspaceBillingContextService,
   getWorkspaceByIdService,
   getWorkspaceOverviewService,
@@ -17,10 +21,13 @@ import {
   grantWorkspaceSupportAccessService,
   lockWorkspaceService,
   listWorkspaceSupportAccessService,
+  listWorkspaceExportRequestsService,
   listWorkspaceSupportRequestsService,
   listWorkspaceMembersForUserService,
   removeUserWorkspaceService,
   repairWorkspaceWhatsAppContactsService,
+  restoreWorkspaceService,
+  selfRestoreWorkspaceService,
   revokeWorkspaceSupportAccessService,
   searchWorkspaceKnowledgeService,
   listWorkspacesService,
@@ -278,6 +285,72 @@ export async function updateWorkspaceCtrl(
   }
 }
 
+export async function archiveWorkspaceCtrl(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const userId = getUserId(req);
+    const id = req.params.id;
+    if (!userId) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    if (!id) {
+      return res.status(400).json({ error: "Workspace id is required" });
+    }
+
+    const data = await archiveWorkspaceService(id, userId);
+    res.json(data);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function restoreWorkspaceCtrl(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const userId = getUserId(req);
+    const id = req.params.id;
+    if (!userId) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    if (!id) {
+      return res.status(400).json({ error: "Workspace id is required" });
+    }
+
+    const data = await restoreWorkspaceService(id, userId);
+    res.json(data);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function selfRestoreWorkspaceCtrl(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const userId = getUserId(req);
+    const id = req.params.id;
+    if (!userId) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    if (!id) {
+      return res.status(400).json({ error: "Workspace id is required" });
+    }
+
+    const data = await selfRestoreWorkspaceService(id, userId);
+    res.json(data);
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function assignWorkspaceUserCtrl(
   req: AuthRequest,
   res: Response,
@@ -321,6 +394,95 @@ export async function listWorkspaceMembersCtrl(
 
     const data = await listWorkspaceMembersForUserService(id, userId);
     res.json(data);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function emergencyResetWorkspaceOwnerPasswordCtrl(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const userId = getUserId(req);
+    const id = req.params.id;
+    if (!userId) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    if (!id) {
+      return res.status(400).json({ error: "Workspace id is required" });
+    }
+
+    const data = await emergencyResetWorkspaceOwnerPasswordService(id, userId);
+    res.json(data);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function createWorkspaceExportRequestCtrl(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const userId = getUserId(req);
+    const id = req.params.id;
+    if (!userId) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    if (!id) {
+      return res.status(400).json({ error: "Workspace id is required" });
+    }
+
+    const data = await createWorkspaceExportRequestService(id, userId);
+    res.status(202).json(data);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function listWorkspaceExportRequestsCtrl(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const userId = getUserId(req);
+    const id = req.params.id;
+    if (!userId) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    if (!id) {
+      return res.status(400).json({ error: "Workspace id is required" });
+    }
+
+    const data = await listWorkspaceExportRequestsService(id, userId);
+    res.json(data);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function downloadWorkspaceExportForUserCtrl(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const userId = getUserId(req);
+    const id = req.params.id;
+    const jobId = req.params.jobId;
+    if (!userId) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    if (!id || !jobId) {
+      return res.status(400).json({ error: "Workspace id and job id are required" });
+    }
+
+    const file = await downloadWorkspaceExportForUserService(id, jobId, userId);
+    return res.download(file.filePath, file.fileName);
   } catch (err) {
     next(err);
   }

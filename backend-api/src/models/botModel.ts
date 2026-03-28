@@ -2,7 +2,7 @@ import { query } from "../config/db";
 
 export async function findBotsByUser(userId: string) {
   const res = await query(
-    "SELECT * FROM bots WHERE user_id = $1 ORDER BY status = 'active' DESC, created_at DESC",
+    "SELECT * FROM bots WHERE user_id = $1 AND deleted_at IS NULL ORDER BY status = 'active' DESC, created_at DESC",
     [userId]
   );
   return res.rows;
@@ -23,7 +23,8 @@ export async function findBotsByWorkspaceProject(
   const res = await query(
     `SELECT *
      FROM bots
-     WHERE workspace_id = $1${projectClause}
+     WHERE workspace_id = $1
+       AND deleted_at IS NULL${projectClause}
      ORDER BY status = 'active' DESC, created_at DESC`,
     params
   );
@@ -31,12 +32,12 @@ export async function findBotsByWorkspaceProject(
 }
 
 export async function findBotById(id: string) {
-  const res = await query("SELECT * FROM bots WHERE id = $1", [id]);
+  const res = await query("SELECT * FROM bots WHERE id = $1 AND deleted_at IS NULL", [id]);
   return res.rows[0];
 }
 
 export async function findBotByIdAndProject(id: string, projectId: string) {
-  const res = await query("SELECT * FROM bots WHERE id = $1 AND project_id = $2", [
+  const res = await query("SELECT * FROM bots WHERE id = $1 AND project_id = $2 AND deleted_at IS NULL", [
     id,
     projectId,
   ]);

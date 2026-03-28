@@ -15,6 +15,7 @@ import {
   createSupportWorkspaceSessionService,
   endSupportWorkspaceSessionService,
 } from "../services/authService";
+import { downloadWorkspaceExportByTokenService } from "../services/workspaceService";
 
 import { AuthRequest } from "../middleware/authMiddleware";
 
@@ -187,6 +188,8 @@ export async function createSupportWorkspaceSession(
       actorUserId,
       workspaceId: String(req.body?.workspaceId || ""),
       durationHours: req.body?.durationHours,
+      consentConfirmed: req.body?.consentConfirmed === true,
+      consentNote: typeof req.body?.consentNote === "string" ? req.body.consentNote : null,
     });
     res.json(data);
   } catch (err) {
@@ -210,6 +213,19 @@ export async function endSupportWorkspaceSession(
       workspaceId: req.body?.workspaceId || req.query?.workspaceId || null,
     });
     res.json(data);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function downloadWorkspaceExport(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const file = await downloadWorkspaceExportByTokenService(String(req.query.token || ""));
+    return res.download(file.filePath, file.fileName);
   } catch (err) {
     next(err);
   }

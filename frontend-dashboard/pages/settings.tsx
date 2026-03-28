@@ -96,7 +96,10 @@ export default function SettingsPage() {
       setPlans([]);
       return;
     }
-    Promise.all([workspaceService.list(), planService.list()])
+    Promise.all([
+      workspaceService.list(),
+      isPlatformOperator ? planService.list() : Promise.resolve([]),
+    ])
       .then(([workspaceData, planData]) => {
         setWorkspaces(workspaceData);
         setPlans(planData);
@@ -104,7 +107,7 @@ export default function SettingsPage() {
       .catch((err) => {
         console.error("Failed to load settings context", err);
       });
-  }, [canViewSettingsPage]);
+  }, [canViewSettingsPage, isPlatformOperator]);
 
   const activeWorkspace = useMemo(
     () => {

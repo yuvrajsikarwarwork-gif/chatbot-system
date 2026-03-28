@@ -1,24 +1,51 @@
 import Link from "next/link";
 
-const TABS = [
-  { label: "Overview", slug: "" },
-  { label: "Billing & Wallet", slug: "billing" },
-  { label: "Limits & Overrides", slug: "overrides" },
-  { label: "Team & Members", slug: "members-access" },
-  { label: "Support Access", slug: "support-access" },
-];
+import { useVisibility } from "../../hooks/useVisibility";
+
+type ActiveSlug = "" | "billing" | "overrides" | "members-access" | "support-access";
 
 export default function WorkspaceConsoleTabs({
   workspaceId,
   activeSlug,
 }: {
   workspaceId: string;
-  activeSlug: "" | "billing" | "overrides" | "members-access" | "support-access";
+  activeSlug: ActiveSlug;
 }) {
+  const {
+    canManagePermissions,
+    canManageUsers,
+    canViewBilling,
+    isPlatformOperator,
+  } = useVisibility();
+
+  const tabs = [
+    { label: "Overview", slug: "" as const, visible: true },
+    {
+      label: "Billing & Wallet",
+      slug: "billing" as const,
+      visible: isPlatformOperator || canViewBilling,
+    },
+    {
+      label: "Limits & Overrides",
+      slug: "overrides" as const,
+      visible: isPlatformOperator || canViewBilling,
+    },
+    {
+      label: "Team & Members",
+      slug: "members-access" as const,
+      visible: isPlatformOperator || canManageUsers || canManagePermissions,
+    },
+    {
+      label: "Support Access",
+      slug: "support-access" as const,
+      visible: isPlatformOperator,
+    },
+  ].filter((tab) => tab.visible || tab.slug === activeSlug);
+
   return (
     <section className="rounded-[1.25rem] border border-[var(--line)] bg-[var(--surface)] p-3 shadow-sm">
       <div className="flex flex-wrap gap-2">
-        {TABS.map((tab) => {
+        {tabs.map((tab) => {
           const href = tab.slug
             ? `/workspaces/${workspaceId}/${tab.slug}`
             : `/workspaces/${workspaceId}`;

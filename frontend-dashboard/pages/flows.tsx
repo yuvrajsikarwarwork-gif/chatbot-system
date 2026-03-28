@@ -54,8 +54,17 @@ function FlowBuilderCanvas() {
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [botMetadata, setBotMetadata] = useState<{ name: string } | null>(null);
   const [availableBots, setAvailableBots] = useState<any[]>([]); 
+  const [handoffBots, setHandoffBots] = useState<any[]>([]);
   const [currentFlowId, setCurrentFlowId] = useState<string | null>(null);
+  const [currentFlowName, setCurrentFlowName] = useState("");
+  const [flowNameDialogMode, setFlowNameDialogMode] = useState<"create" | "rename" | null>(null);
+  const [flowNameDraft, setFlowNameDraft] = useState("");
   const [flowSummaries, setFlowSummaries] = useState<any[]>([]);
+  const [flowOptionsByBot, setFlowOptionsByBot] = useState<Record<string, any[]>>({});
+  const [allowedNodeTypes, setAllowedNodeTypes] = useState<string[]>([]);
+  const [nodeDisabledReasons, setNodeDisabledReasons] = useState<Record<string, string>>({});
+  const [hasClipboardSelection, setHasClipboardSelection] = useState(false);
+  const flowClipboardRef = useRef<{ nodes: Node[]; edges: Edge[] } | null>(null);
 
   const [isLoading, setIsLoading] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -86,6 +95,7 @@ function FlowBuilderCanvas() {
       : payload;
 
     setCurrentFlowId(typeof payload?.id === "string" ? payload.id : null);
+    setCurrentFlowName(String(payload?.flow_name || payload?.name || "").trim());
     const normalizedFlow = normalizeFlowForCanvas(flowJson);
     setNodes(normalizedFlow.nodes);
     setEdges(normalizedFlow.edges);
@@ -141,10 +151,30 @@ function FlowBuilderCanvas() {
         });
         const unlockedList = botRows.filter((b: any) => unlockedBotIds.includes(b.id));
         setAvailableBots(unlockedList);
+        setHandoffBots(Array.isArray(botRows) ? botRows : []);
+
+        const summariesByBotEntries = await Promise.all(
+          (Array.isArray(botRows) ? botRows : []).map(async (bot: any) => {
+            try {
+              const summaries = await flowService.getFlowSummaries(bot.id);
+              return [String(bot.id), Array.isArray(summaries) ? summaries : []] as const;
+            } catch {
+              return [String(bot.id), []] as const;
+            }
+          })
+        );
+        setFlowOptionsByBot(Object.fromEntries(summariesByBotEntries));
 
         if (botId && isUnlocked) {
           const botInfo = await apiClient.get(`/bots/${botId}`);
           setBotMetadata(botInfo.data);
+          const capabilities = await flowService.getCapabilities(botId);
+          setAllowedNodeTypes(Array.isArray(capabilities?.allowedNodeTypes) ? capabilities.allowedNodeTypes : []);
+          setNodeDisabledReasons(
+            capabilities?.disabledReasons && typeof capabilities.disabledReasons === "object"
+              ? capabilities.disabledReasons
+              : {}
+          );
           const summaries = await flowService.getFlowSummaries(botId);
           setFlowSummaries(Array.isArray(summaries) ? summaries : []);
           const initialFlowId =
@@ -155,7 +185,10 @@ function FlowBuilderCanvas() {
           applyLoadedFlow(data);
         } else {
           setCurrentFlowId(null);
+          setCurrentFlowName("");
           setFlowSummaries([]);
+          setAllowedNodeTypes([]);
+          setNodeDisabledReasons({});
         }
       } catch (err: any) {
         console.error("Session initialization failed:", err);
@@ -195,12 +228,30 @@ function FlowBuilderCanvas() {
     }
   }, [applyLoadedFlow, botId]);
 
-  const handleCreateFlow = useCallback(async () => {
+  const openCreateFlowDialog = useCallback(() => {
+    const nextIndex = (flowSummaries?.length || 0) + 1;
+    setFlowNameDraft(`Flow ${nextIndex}`);
+    setFlowNameDialogMode("create");
+  }, [flowSummaries.length]);
+
+  const openRenameFlowDialog = useCallback(() => {
+    if (!currentFlowId) {
+      return;
+    }
+    setFlowNameDraft(currentFlowName || "Untitled flow");
+    setFlowNameDialogMode("rename");
+  }, [currentFlowId, currentFlowName]);
+
+  const closeFlowNameDialog = useCallback(() => {
+    setFlowNameDialogMode(null);
+    setFlowNameDraft("");
+  }, []);
+
+  const handleCreateFlow = useCallback(async (requestedName: string) => {
     if (!botId || !canEditProjectWorkflow) {
       return;
     }
 
-    const nextIndex = (flowSummaries?.length || 0) + 1;
     const created = await flowService.createFlow(
       botId,
       {
@@ -214,7 +265,7 @@ function FlowBuilderCanvas() {
         ],
         edges: [],
       },
-      `Flow ${nextIndex}`,
+      requestedName,
       flowSummaries.length === 0
     );
 
@@ -223,14 +274,69 @@ function FlowBuilderCanvas() {
     applyLoadedFlow(created);
     setSelectedNode(null);
     setIsDirty(false);
-  }, [applyLoadedFlow, botId, canEditProjectWorkflow, flowSummaries.length]);
+  }, [applyLoadedFlow, botId, canEditProjectWorkflow]);
+
+  const handleRenameFlow = useCallback(async (nextName: string) => {
+    if (!botId || !currentFlowId || !canEditProjectWorkflow) {
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const saved = await flowService.saveFlow(
+        botId,
+        { nodes, edges },
+        currentFlowId,
+        nextName
+      );
+      setCurrentFlowName(String(saved?.flow_name || nextName).trim());
+      const summaries = await flowService.getFlowSummaries(botId);
+      setFlowSummaries(Array.isArray(summaries) ? summaries : []);
+      setIsDirty(false);
+      notify("Flow name updated.", "success");
+    } catch (err) {
+      console.error("Rename flow error", err);
+      notify("Failed to rename flow.", "error");
+    } finally {
+      setIsSaving(false);
+    }
+  }, [botId, canEditProjectWorkflow, currentFlowId, nodes, edges]);
+
+  const handleSubmitFlowNameDialog = useCallback(async () => {
+    const nextName = flowNameDraft.trim();
+    if (!nextName) {
+      notify("Flow name is required.", "error");
+      return;
+    }
+
+    if (flowNameDialogMode === "create") {
+      await handleCreateFlow(nextName);
+      closeFlowNameDialog();
+      return;
+    }
+
+    if (flowNameDialogMode === "rename") {
+      await handleRenameFlow(nextName);
+      closeFlowNameDialog();
+    }
+  }, [closeFlowNameDialog, flowNameDialogMode, flowNameDraft, handleCreateFlow, handleRenameFlow]);
 
   const handleSave = useCallback(async () => {
     if (!botId || !isDirty || !isUnlocked || !canEditProjectWorkflow) return;
     setIsSaving(true);
     try {
-      const saved = await flowService.saveFlow(botId, { nodes, edges }, currentFlowId || undefined);
+      const saved = await flowService.saveFlow(
+        botId,
+        { nodes, edges },
+        currentFlowId || undefined,
+        currentFlowName.trim() || undefined
+      );
       setCurrentFlowId(saved?.id || currentFlowId);
+      setCurrentFlowName(String(saved?.flow_name || currentFlowName).trim());
+      if (saved?.id) {
+        const summaries = await flowService.getFlowSummaries(botId);
+        setFlowSummaries(Array.isArray(summaries) ? summaries : []);
+      }
       setIsDirty(false);
     } catch (err) { 
       console.error("Save error", err); 
@@ -238,7 +344,7 @@ function FlowBuilderCanvas() {
     } finally {
       setTimeout(() => setIsSaving(false), 800);
     }
-  }, [botId, nodes, edges, isDirty, isUnlocked, currentFlowId, canEditProjectWorkflow]);
+  }, [botId, nodes, edges, isDirty, isUnlocked, currentFlowId, currentFlowName, canEditProjectWorkflow]);
 
   useEffect(() => {
     if (isDirty) {
@@ -261,20 +367,118 @@ function FlowBuilderCanvas() {
     setEdges((eds) => eds.map((e) => ({ ...e, selected: true })));
   }, [setNodes, setEdges]);
 
+  const copySelected = useCallback(async () => {
+    const selectedNodes = nodes.filter((node) => node.selected);
+    if (!selectedNodes.length) {
+      notify("Select one or more nodes first.", "error");
+      return;
+    }
+
+    const selectedNodeIds = new Set(selectedNodes.map((node) => String(node.id)));
+    const selectedEdges = edges.filter(
+      (edge) =>
+        selectedNodeIds.has(String(edge.source)) &&
+        selectedNodeIds.has(String(edge.target))
+    );
+
+    const payload = {
+      nodes: selectedNodes.map((node) => ({
+        ...node,
+        selected: false,
+      })),
+      edges: selectedEdges.map((edge) => ({
+        ...edge,
+        selected: false,
+      })),
+    };
+
+    flowClipboardRef.current = payload;
+    setHasClipboardSelection(true);
+
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(payload));
+    } catch {}
+
+    notify(`Copied ${selectedNodes.length} node${selectedNodes.length === 1 ? "" : "s"}.`, "success");
+  }, [nodes, edges]);
+
+  const pasteSelected = useCallback(async () => {
+    if (!canEditProjectWorkflow) return;
+
+    let payload = flowClipboardRef.current;
+    if (!payload) {
+      try {
+        const text = await navigator.clipboard.readText();
+        const parsed = JSON.parse(text);
+        if (Array.isArray(parsed?.nodes) && Array.isArray(parsed?.edges)) {
+          payload = parsed;
+        }
+      } catch {}
+    }
+
+    if (!payload?.nodes?.length) {
+      notify("No copied nodes are available to paste.", "error");
+      return;
+    }
+
+    takeSnapshot();
+    const timestamp = Date.now();
+    const idMap = new Map<string, string>();
+    const pastedNodes: Node[] = payload.nodes.map((node, index) => {
+      const nextId = `${String(node.id)}-copy-${timestamp}-${index}`;
+      idMap.set(String(node.id), nextId);
+      return {
+        ...node,
+        id: nextId,
+        selected: true,
+        position: {
+          x: Number(node.position?.x || 0) + 60,
+          y: Number(node.position?.y || 0) + 60,
+        },
+      };
+    });
+    const pastedEdges: Edge[] = payload.edges
+      .filter((edge) => idMap.has(String(edge.source)) && idMap.has(String(edge.target)))
+      .map((edge, index) => ({
+        ...edge,
+        id: `${String(edge.id || `edge-${index}`)}-copy-${timestamp}-${index}`,
+        source: idMap.get(String(edge.source)) || String(edge.source),
+        target: idMap.get(String(edge.target)) || String(edge.target),
+        selected: true,
+      }));
+
+    setNodes((nds) => {
+      const clearedNodes: Node[] = nds.map((node) => ({ ...node, selected: false }));
+      return [...clearedNodes, ...pastedNodes];
+    });
+    setEdges((eds) => {
+      const clearedEdges: Edge[] = eds.map((edge) => ({ ...edge, selected: false }));
+      return [...clearedEdges, ...pastedEdges];
+    });
+    setIsDirty(true);
+    notify(`Pasted ${pastedNodes.length} node${pastedNodes.length === 1 ? "" : "s"}.`, "success");
+  }, [canEditProjectWorkflow, setNodes, setEdges, takeSnapshot]);
+
   useEffect(() => {
       const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'TEXTAREA') return;
       if (!canEditProjectWorkflow) return;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); if (e.shiftKey) redo(); else undo(); }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') { e.preventDefault(); selectAll(); }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') { e.preventDefault(); copySelected().catch?.(() => undefined); }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') { e.preventDefault(); pasteSelected().catch?.(() => undefined); }
       if (e.key === 'Delete' || e.key === 'Backspace') deleteSelected();
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undo, redo, deleteSelected, selectAll, canEditProjectWorkflow]);
+  }, [undo, redo, deleteSelected, selectAll, copySelected, pasteSelected, canEditProjectWorkflow]);
 
   const onAddNode = (type: string) => {
     if (!canEditProjectWorkflow) return;
+    if (allowedNodeTypes.length > 0 && !allowedNodeTypes.includes(type)) {
+      notify(nodeDisabledReasons[type] || "This node is not available for the current workspace.", "error");
+      return;
+    }
     takeSnapshot();
     const offset = (nodes.length % 15) * 30; 
     const newNode: Node = { id: `node-${Date.now()}`, type, position: { x: 300 + offset, y: 150 + offset }, data: { label: formatDefaultLabel(type), text: "" } };
@@ -287,13 +491,17 @@ function FlowBuilderCanvas() {
     if (!canEditProjectWorkflow) return;
     const type = e.dataTransfer.getData('application/reactflow');
     if (!type || !reactFlowWrapper.current) return;
+    if (allowedNodeTypes.length > 0 && !allowedNodeTypes.includes(type)) {
+      notify(nodeDisabledReasons[type] || "This node is not available for the current workspace.", "error");
+      return;
+    }
     const reactFlowBounds = reactFlowWrapper.current.getBoundingClientRect();
     const position = project({ x: e.clientX - reactFlowBounds.left, y: e.clientY - reactFlowBounds.top });
     takeSnapshot();
     const newNode: Node = { id: `node-${Date.now()}`, type, position, data: { label: formatDefaultLabel(type), text: "" } };
     setNodes((nds) => nds.concat(newNode));
     setIsDirty(true);
-  }, [setNodes, takeSnapshot, project, canEditProjectWorkflow]);
+  }, [setNodes, takeSnapshot, project, canEditProjectWorkflow, allowedNodeTypes, nodeDisabledReasons]);
 
   const onUpdateNodeData = (newData: any) => {
     if (!canEditProjectWorkflow) return;
@@ -411,8 +619,10 @@ function FlowBuilderCanvas() {
               canDeleteFlowAction={canDeleteProjectFlow}
               flowSummaries={flowSummaries}
               currentFlowId={currentFlowId}
+              currentFlowName={currentFlowName}
               onSelectFlow={handleSelectFlow}
-              onCreateFlow={handleCreateFlow}
+              onCreateFlow={openCreateFlowDialog}
+              onEditFlowName={openRenameFlowDialog}
               onDownloadSample={handleDownloadSample}
               fileInputRef={fileInputRef}
               onFileUpload={handleFileUpload}
@@ -421,11 +631,14 @@ function FlowBuilderCanvas() {
               canUndo={past.length > 0}
               canRedo={future.length > 0}
               onDeleteSelected={deleteSelected}
+              onCopySelected={copySelected}
+              onPasteSelected={pasteSelected}
               onDeleteFlow={handleDeleteFlow}
               onSave={handleSave}
               isDirty={isDirty}
               isSaving={isSaving}
               canDeleteFlow={Boolean(currentFlowId)}
+              canPasteSelection={hasClipboardSelection}
             />
           }
         >
@@ -438,8 +651,10 @@ function FlowBuilderCanvas() {
           canDeleteFlowAction={canDeleteProjectFlow}
           flowSummaries={flowSummaries}
           currentFlowId={currentFlowId}
+          currentFlowName={currentFlowName}
           onSelectFlow={handleSelectFlow}
-          onCreateFlow={handleCreateFlow}
+          onCreateFlow={openCreateFlowDialog}
+          onEditFlowName={openRenameFlowDialog}
           onDownloadSample={handleDownloadSample}
         fileInputRef={fileInputRef}
         onFileUpload={handleFileUpload}
@@ -448,16 +663,71 @@ function FlowBuilderCanvas() {
         canUndo={past.length > 0}
         canRedo={future.length > 0}
         onDeleteSelected={deleteSelected}
+        onCopySelected={copySelected}
+        onPasteSelected={pasteSelected}
         onDeleteFlow={handleDeleteFlow}
         onSave={handleSave}
         isDirty={isDirty}
         isSaving={isSaving}
         canDeleteFlow={Boolean(currentFlowId)}
+        canPasteSelection={hasClipboardSelection}
       />
       </RequirePermission>
 
       <div className="flex-1 flex overflow-hidden relative">
-        <FlowSidebar isOpen={isSidebarOpen} onAddNode={onAddNode} canEditWorkflow={canEditProjectWorkflow} />
+        {flowNameDialogMode ? (
+          <div className="absolute inset-0 z-[70] flex items-center justify-center bg-slate-900/30 px-4 backdrop-blur-[2px]">
+            <div className="w-full max-w-md rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-2xl">
+              <div className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+                {flowNameDialogMode === "create" ? "Create Flow" : "Rename Flow"}
+              </div>
+              <h3 className="mt-3 text-lg font-semibold text-slate-900">
+                {flowNameDialogMode === "create" ? "Name the new flow" : "Update flow name"}
+              </h3>
+              <p className="mt-2 text-sm leading-6 text-slate-500">
+                {flowNameDialogMode === "create"
+                  ? "Create a separate workflow for this bot with a clear name."
+                  : "Change the current flow name without leaving the builder."}
+              </p>
+              <input
+                autoFocus
+                value={flowNameDraft}
+                onChange={(event) => setFlowNameDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    handleSubmitFlowNameDialog().catch(() => undefined);
+                  }
+                }}
+                placeholder="Flow name"
+                className="mt-5 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 outline-none"
+              />
+              <div className="mt-5 flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={closeFlowNameDialog}
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-black uppercase tracking-[0.16em] text-slate-600 transition hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSubmitFlowNameDialog().catch(() => undefined)}
+                  className="rounded-xl border border-slate-900 bg-slate-900 px-4 py-2.5 text-xs font-black uppercase tracking-[0.16em] text-white transition hover:bg-black"
+                >
+                  Save
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+        <FlowSidebar
+          isOpen={isSidebarOpen}
+          onAddNode={onAddNode}
+          canEditWorkflow={canEditProjectWorkflow}
+          allowedNodeTypes={allowedNodeTypes}
+          disabledReasons={nodeDisabledReasons}
+        />
 
         <div className="flex-1 relative w-full h-full" ref={reactFlowWrapper} onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
           {!canEditProjectWorkflow ? (
@@ -488,7 +758,7 @@ function FlowBuilderCanvas() {
             <Controls className="mb-4 ml-4 shadow-xl border-none" />
             
             {selectedNode && (
-              <Panel
+          <Panel
                 position="top-right"
                 className="bg-white/95 backdrop-blur-md border border-slate-200 shadow-2xl rounded-2xl w-[350px] h-[85%] overflow-hidden flex flex-col mr-6 mt-6 animate-in slide-in-from-right-8 z-50"
                 onMouseDown={(e) => e.stopPropagation()}
@@ -499,7 +769,16 @@ function FlowBuilderCanvas() {
                   <button onClick={() => setSelectedNode(null)} className="text-slate-400 hover:text-white"><X size={18} /></button>
                 </div>
                 <div className="flex-1 overflow-y-auto custom-scrollbar relative">
-                  <NodeEditor node={selectedNode} onUpdate={onUpdateNodeData} onClose={() => setSelectedNode(null)} />
+                  <NodeEditor
+                    node={selectedNode}
+                    onUpdate={onUpdateNodeData}
+                    onClose={() => setSelectedNode(null)}
+                    currentBotId={botId}
+                    currentFlowId={currentFlowId}
+                    flowOptions={flowSummaries}
+                    botOptions={handoffBots}
+                    flowOptionsByBot={flowOptionsByBot}
+                  />
                   {!canEditProjectWorkflow ? (
                     <div className="absolute inset-0 bg-white/55 backdrop-blur-[1px]" />
                   ) : null}

@@ -1,6 +1,11 @@
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
+import fs from "fs/promises";
+import path from "path";
 import { db, query } from "../config/db";
+import { createAuthToken, findAuthTokenByHash, markAuthTokenUsed, revokeActiveAuthTokensForUser } from "../models/authTokenModel";
+import { env } from "../config/env";
+import { getUserPlatformRole, resolveWorkspaceMembership } from "./workspaceAccessService";
 import { findPlanById } from "../models/planModel";
 import {
   createBillingSubscription,
@@ -25,6 +30,7 @@ import {
   findWorkspacesByUser,
   updateWorkspace,
 } from "../models/workspaceModel";
+import { findUserById } from "../models/userModel";
 import { assertRecord } from "../utils/assertRecord";
 import {
   assignWorkspaceMemberService,
@@ -41,16 +47,17 @@ import { ingestDocumentEmbeddings } from "./documentIngestionService";
 import { retrieveKnowledgeForWorkspace } from "./ragService";
 import { repairWhatsAppContactDuplicates } from "./contactMergeService";
 import { createWorkspaceInviteService } from "./inviteService";
+import { sendPasswordResetOtpEmail, sendTransactionalEmail } from "./mailService";
 import {
   recordWorkspaceUsage,
-  resolvePlanLimit,
   resolveWorkspacePlanLimit,
   syncWorkspaceSeatQuantity,
 } from "./billingService";
+import { revokeRemotePlatformConnectionService } from "./integrationService";
 
 function normalizeWorkspaceStatus(status?: string) {
   const value = String(status || "active").trim().toLowerCase();
-  const allowed = new Set(["active", "inactive", "paused", "locked", "suspended"]);
+  const allowed = new Set(["active", "inactive", "paused", "locked", "suspended", "archived"]);
   if (!allowed.has(value)) {
     throw { status: 400, message: `Unsupported workspace status '${status}'` };
   }
@@ -98,6 +105,114 @@ function resolveBasePlanPrice(plan: any, billingCycle: string, currency: string)
   return Number(
     billingCycle === "yearly" ? plan?.yearly_price_inr || 0 : plan?.monthly_price_inr || 0
   );
+}
+
+function hashToken(token: string) {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
+
+function generateOtpCode() {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+
+function getPublicApiBaseUrl() {
+  return String(env.PUBLIC_API_BASE_URL || `http://localhost:${env.PORT || 4000}`).replace(/\/$/, "");
+}
+
+function getWorkspaceExportDirectory() {
+  return path.resolve(process.cwd(), "uploads", "exports");
+}
+
+function buildWorkspaceExportDownloadUrl(token: string) {
+  return `${getPublicApiBaseUrl()}/api/auth/workspace-export?token=${encodeURIComponent(token)}`;
+}
+
+async function assertDestructiveActionRateLimit(input: {
+  userId: string;
+  workspaceId: string;
+  actionKey: string;
+  limit: number;
+  windowMinutes: number;
+}) {
+  const res = await query(
+    `SELECT COUNT(*)::int AS total
+     FROM audit_logs
+     WHERE workspace_id = $1
+       AND COALESCE(actor_user_id, user_id) = $2
+       AND entity = 'workspace'
+       AND action = $3
+       AND created_at >= NOW() - ($4::text || ' minutes')::interval`,
+    [input.workspaceId, input.userId, input.actionKey, String(input.windowMinutes)]
+  ).catch(() => ({ rows: [{ total: 0 }] }));
+
+  const total = Number(res.rows[0]?.total || 0);
+  if (total >= input.limit) {
+    throw {
+      status: 429,
+      message: `Too many destructive workspace actions in a short period. Try again in ${input.windowMinutes} minutes.`,
+    };
+  }
+}
+
+function sanitizeExportPlatformAccount(account: Record<string, any>) {
+  return {
+    ...account,
+    token: null,
+  };
+}
+
+function escapeCsvValue(value: unknown) {
+  if (value === null || value === undefined) {
+    return "";
+  }
+  const text =
+    typeof value === "object" ? JSON.stringify(value) : String(value);
+  if (/[",\n]/.test(text)) {
+    return `"${text.replace(/"/g, '""')}"`;
+  }
+  return text;
+}
+
+function buildCsv(rows: Record<string, any>[]) {
+  if (!rows.length) {
+    return "";
+  }
+  const headerSet = rows.reduce<Set<string>>((acc, row) => {
+    Object.keys(row || {}).forEach((key) => acc.add(key));
+    return acc;
+  }, new Set<string>());
+  const headers = [...headerSet];
+  const lines = [
+    headers.join(","),
+    ...rows.map((row) => headers.map((header) => escapeCsvValue(row?.[header])).join(",")),
+  ];
+  return lines.join("\n");
+}
+
+async function assertWorkspaceRecoveryAccess(userId: string, workspaceId: string) {
+  const platformRole = await getUserPlatformRole(userId);
+  if (platformRole === "super_admin" || platformRole === "developer") {
+    return;
+  }
+
+  const membership = await resolveWorkspaceMembership(userId, workspaceId);
+  if (!membership || String(membership.status || "").toLowerCase() !== "active") {
+    throw { status: 403, message: "Forbidden" };
+  }
+
+  const role = String(membership.role || "").toLowerCase();
+  if (!["workspace_admin", "workspace_owner", "admin"].includes(role)) {
+    throw { status: 403, message: "Only workspace admins can restore scheduled accounts." };
+  }
+}
+
+async function assertWorkspaceExportAccess(userId: string, workspaceId: string) {
+  try {
+    await assertWorkspacePermission(userId, workspaceId, WORKSPACE_PERMISSIONS.exportData);
+    return;
+  } catch {}
+
+  await assertWorkspaceRecoveryAccess(userId, workspaceId);
 }
 
 export async function listWorkspacesService(userId: string) {
@@ -166,14 +281,14 @@ export async function getWorkspaceOverviewService(workspaceId: string, userId: s
     query(
       `SELECT
          (SELECT COUNT(*)::int FROM workspace_memberships WHERE workspace_id = $1 AND status = 'active') AS member_count,
-         (SELECT COUNT(*)::int FROM projects WHERE workspace_id = $1) AS project_count,
-         (SELECT COUNT(*)::int FROM bots WHERE workspace_id = $1) AS bot_count,
+         (SELECT COUNT(*)::int FROM projects WHERE workspace_id = $1 AND deleted_at IS NULL) AS project_count,
+         (SELECT COUNT(*)::int FROM bots WHERE workspace_id = $1 AND deleted_at IS NULL) AS bot_count,
          (SELECT COUNT(*)::int FROM flows f JOIN bots b ON b.id = f.bot_id WHERE b.workspace_id = $1) AS flow_count,
-         (SELECT COUNT(*)::int FROM campaigns WHERE workspace_id = $1) AS campaign_count,
+         (SELECT COUNT(*)::int FROM campaigns WHERE workspace_id = $1 AND deleted_at IS NULL) AS campaign_count,
          (SELECT COUNT(*)::int FROM platform_accounts WHERE workspace_id = $1) AS platform_account_count,
-         (SELECT COUNT(*)::int FROM conversations WHERE workspace_id = $1) AS conversation_count,
-         (SELECT COUNT(*)::int FROM conversations WHERE workspace_id = $1 AND status IN ('active', 'agent_pending')) AS open_conversation_count,
-         (SELECT COUNT(*)::int FROM leads WHERE workspace_id = $1) AS lead_count,
+         (SELECT COUNT(*)::int FROM conversations WHERE workspace_id = $1 AND deleted_at IS NULL) AS conversation_count,
+         (SELECT COUNT(*)::int FROM conversations WHERE workspace_id = $1 AND deleted_at IS NULL AND status IN ('active', 'agent_pending')) AS open_conversation_count,
+         (SELECT COUNT(*)::int FROM leads WHERE workspace_id = $1 AND deleted_at IS NULL) AS lead_count,
          (SELECT COUNT(*)::int FROM support_requests WHERE workspace_id = $1 AND status = 'open') AS open_support_request_count,
          (SELECT COUNT(*)::int FROM support_access WHERE workspace_id = $1 AND expires_at > NOW()) AS active_support_access_count`,
       [workspaceId]
@@ -245,6 +360,215 @@ export async function getWorkspaceOverviewService(workspaceId: string, userId: s
         : 0,
       activeAccess: Number(counts.active_support_access_count || 0),
     },
+  };
+}
+
+async function performWorkspaceRestore(workspaceId: string, userId: string) {
+  const existing = assertRecord(await findWorkspaceById(workspaceId, userId), "Workspace not found");
+  const restored = await updateWorkspace(workspaceId, userId, {
+    status: "active",
+    lockReason: "",
+    archivedAt: null,
+    deletedAt: null,
+    purgeAfter: null,
+  });
+
+  await query(
+    `UPDATE projects
+     SET deleted_at = NULL, updated_at = NOW()
+     WHERE workspace_id = $1`,
+    [workspaceId]
+  );
+  await query(
+    `UPDATE campaigns
+     SET deleted_at = NULL, updated_at = NOW()
+     WHERE workspace_id = $1`,
+    [workspaceId]
+  );
+  await query(
+    `UPDATE bots
+     SET deleted_at = NULL, updated_at = NOW()
+     WHERE workspace_id = $1`,
+    [workspaceId]
+  );
+  await query(
+    `UPDATE leads
+     SET deleted_at = NULL, updated_at = NOW()
+     WHERE workspace_id = $1`,
+    [workspaceId]
+  );
+  await query(
+    `UPDATE conversations
+     SET deleted_at = NULL, updated_at = NOW()
+     WHERE workspace_id = $1`,
+    [workspaceId]
+  );
+
+  await logAuditSafe({
+    userId,
+    workspaceId,
+    action: "restore",
+    entity: "workspace",
+    entityId: workspaceId,
+    oldData: existing,
+    newData: restored || {},
+  });
+
+  return restored;
+}
+
+export async function restoreWorkspaceService(workspaceId: string, userId: string) {
+  await assertPlatformRoles(userId, ["super_admin", "developer"]);
+  return performWorkspaceRestore(workspaceId, userId);
+}
+
+export async function selfRestoreWorkspaceService(workspaceId: string, userId: string) {
+  assertRecord(await findWorkspaceById(workspaceId, userId), "Workspace not found");
+  await assertWorkspaceRecoveryAccess(userId, workspaceId);
+  return performWorkspaceRestore(workspaceId, userId);
+}
+
+export async function createWorkspaceExportRequestService(workspaceId: string, userId: string) {
+  const workspace = assertRecord(await findWorkspaceById(workspaceId, userId), "Workspace not found");
+  await assertWorkspaceExportAccess(userId, workspaceId);
+
+  const existingRes = await query(
+    `SELECT id, status, payload
+     FROM queue_jobs
+     WHERE job_type = 'workspace_export'
+       AND status IN ('pending', 'processing')
+       AND payload->>'workspaceId' = $1
+       AND payload->>'requestedBy' = $2
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    [workspaceId, userId]
+  );
+  const existing = existingRes.rows[0];
+  if (existing) {
+    return {
+      queued: true,
+      jobId: existing.id,
+      status: existing.status,
+    };
+  }
+
+  const payload = {
+    workspaceId,
+    workspaceName: workspace.name,
+    requestedBy: userId,
+    requestedAt: new Date().toISOString(),
+  };
+
+  const inserted = await query(
+    `INSERT INTO queue_jobs (job_type, status, payload, available_at, updated_at)
+     VALUES ('workspace_export', 'pending', $1::jsonb, NOW(), NOW())
+     RETURNING id, status, payload, created_at`,
+    [JSON.stringify(payload)]
+  );
+
+  await logAuditSafe({
+    userId,
+    workspaceId,
+    action: "request_export",
+    entity: "workspace_export",
+    entityId: String(inserted.rows[0]?.id || ""),
+    newData: payload,
+  });
+
+  return {
+    queued: true,
+    jobId: inserted.rows[0]?.id,
+    status: inserted.rows[0]?.status || "pending",
+  };
+}
+
+export async function listWorkspaceExportRequestsService(workspaceId: string, userId: string) {
+  assertRecord(await findWorkspaceById(workspaceId, userId), "Workspace not found");
+  await assertWorkspaceExportAccess(userId, workspaceId);
+
+  const res = await query(
+    `SELECT id, status, payload, created_at, completed_at, updated_at
+     FROM queue_jobs
+     WHERE job_type = 'workspace_export'
+       AND payload->>'workspaceId' = $1
+     ORDER BY created_at DESC
+     LIMIT 20`,
+    [workspaceId]
+  );
+
+  return res.rows.map((row: any) => {
+    const payload = row.payload && typeof row.payload === "object" ? row.payload : {};
+    return {
+      id: row.id,
+      status: row.status,
+      createdAt: row.created_at,
+      completedAt: row.completed_at,
+      requestedBy: payload.requestedBy || null,
+      requestedAt: payload.requestedAt || row.created_at,
+      fileName: payload.exportFileName || null,
+      emailedTo: payload.exportEmail || null,
+      previewDownloadPath:
+        payload.exportFileName && env.NODE_ENV !== "production"
+          ? `/api/workspaces/${workspaceId}/export-requests/${row.id}/download`
+          : null,
+    };
+  });
+}
+
+export async function downloadWorkspaceExportForUserService(
+  workspaceId: string,
+  jobId: string,
+  userId: string
+) {
+  assertRecord(await findWorkspaceById(workspaceId, userId), "Workspace not found");
+  await assertWorkspaceExportAccess(userId, workspaceId);
+
+  const res = await query(
+    `SELECT id, status, payload
+     FROM queue_jobs
+     WHERE id = $1
+       AND job_type = 'workspace_export'
+       AND payload->>'workspaceId' = $2
+     LIMIT 1`,
+    [jobId, workspaceId]
+  );
+  const job = res.rows[0];
+  if (!job) {
+    throw { status: 404, message: "Export request not found" };
+  }
+  const payload = job.payload && typeof job.payload === "object" ? job.payload : {};
+  const filePath = String(payload.exportFilePath || "").trim();
+  if (!filePath || job.status !== "completed") {
+    throw { status: 409, message: "Export is not ready yet" };
+  }
+
+  return {
+    filePath,
+    fileName: String(payload.exportFileName || path.basename(filePath)),
+  };
+}
+
+export async function downloadWorkspaceExportByTokenService(token: string) {
+  const rawToken = String(token || "").trim();
+  if (!rawToken) {
+    throw { status: 400, message: "token is required" };
+  }
+
+  const record = await findAuthTokenByHash(hashToken(rawToken), "workspace_export_download");
+  if (!record || record.used_at || new Date(record.expires_at).getTime() < Date.now()) {
+    throw { status: 404, message: "Download link is invalid or expired" };
+  }
+
+  const filePath = String(record.metadata?.filePath || "").trim();
+  if (!filePath) {
+    throw { status: 404, message: "Export file metadata is missing" };
+  }
+
+  await markAuthTokenUsed(record.id);
+
+  return {
+    filePath,
+    fileName: String(record.metadata?.fileName || path.basename(filePath)),
   };
 }
 
@@ -718,16 +1042,16 @@ export async function updateWorkspaceService(id: string, userId: string, payload
         basePriceAmount: resolveBasePlanPrice(
           plan,
           String(billing.billing_cycle || "monthly"),
-            String(billing.currency || "INR")
-          ),
-          includedSeatLimit:
-            resolveWorkspacePlanLimit(updated || existing, plan, billing, "agent_seat_limit", null) ||
-            Number(plan.included_users || plan.max_users || 0),
-          extraSeatUnitPrice: Number(plan.extra_agent_seat_price_inr || 0),
-          aiReplyLimit: resolveWorkspacePlanLimit(updated || existing, plan, billing, "ai_reply_limit", null),
-        });
-      }
+          String(billing.currency || "INR")
+        ),
+        includedSeatLimit:
+          resolveWorkspacePlanLimit(updated || existing, plan, billing, "agent_seat_limit", null) ||
+          Number(plan.included_users || plan.max_users || 0),
+        extraSeatUnitPrice: Number(plan.extra_agent_seat_price_inr || 0),
+        aiReplyLimit: resolveWorkspacePlanLimit(updated || existing, plan, billing, "ai_reply_limit", null),
+      });
     }
+  }
 
   await logAuditSafe({
     userId,
@@ -739,6 +1063,116 @@ export async function updateWorkspaceService(id: string, userId: string, payload
     newData: updated || {},
   });
   return updated;
+}
+
+export async function archiveWorkspaceService(workspaceId: string, userId: string) {
+  const existing = assertRecord(await findWorkspaceById(workspaceId, userId), "Workspace not found");
+  await assertPlatformRoles(userId, ["super_admin", "developer"]);
+  await assertDestructiveActionRateLimit({
+    userId,
+    workspaceId,
+    actionKey: "archive",
+    limit: 5,
+    windowMinutes: 10,
+  });
+
+  if (String(existing.status || "").toLowerCase() === "archived") {
+    return existing;
+  }
+
+  const archivedAt = new Date().toISOString();
+  const archived = await updateWorkspace(workspaceId, userId, {
+    status: "archived",
+    lockReason: "Archived by platform operator",
+    archivedAt,
+  });
+
+  await logAuditSafe({
+    userId,
+    workspaceId,
+    action: "archive",
+    entity: "workspace",
+    entityId: workspaceId,
+    oldData: existing,
+    newData: {
+      ...(archived || {}),
+      archived_at: archivedAt,
+    },
+  });
+
+  return archived;
+}
+
+export async function emergencyResetWorkspaceOwnerPasswordService(
+  workspaceId: string,
+  actorUserId: string
+) {
+  const workspace = assertRecord(await findWorkspaceById(workspaceId, actorUserId), "Workspace not found");
+  await assertPlatformRoles(actorUserId, ["super_admin", "developer"]);
+  await assertDestructiveActionRateLimit({
+    userId: actorUserId,
+    workspaceId,
+    actionKey: "emergency_password_reset",
+    limit: 5,
+    windowMinutes: 10,
+  });
+
+  const ownerUserId = String(workspace.owner_user_id || "").trim();
+  if (!ownerUserId) {
+    throw { status: 404, message: "Workspace owner is not configured" };
+  }
+
+  const owner = await findUserById(ownerUserId);
+  if (!owner?.email) {
+    throw { status: 404, message: "Workspace owner email is not available for reset" };
+  }
+
+  const normalizedEmail = String(owner.email).trim().toLowerCase();
+  const otp = generateOtpCode();
+  const tokenHash = hashToken(`${normalizedEmail}:${otp}`);
+  const expiresAt = new Date(Date.now() + 1000 * 60 * 10).toISOString();
+
+  await revokeActiveAuthTokensForUser(owner.id, "password_reset_otp");
+  await createAuthToken({
+    userId: owner.id,
+    workspaceId,
+    email: normalizedEmail,
+    tokenHash,
+    purpose: "password_reset_otp",
+    expiresAt,
+    metadata: {
+      channel: "email",
+      source: "workspace_emergency_owner_reset",
+      workspaceId,
+    },
+    createdBy: actorUserId,
+  });
+
+  await sendPasswordResetOtpEmail({
+    to: normalizedEmail,
+    otp,
+    name: owner.name || null,
+  });
+
+  await logAuditSafe({
+    userId: actorUserId,
+    workspaceId,
+    action: "emergency_password_reset",
+    entity: "workspace_owner",
+    entityId: owner.id,
+    newData: {
+      ownerUserId: owner.id,
+      ownerEmail: normalizedEmail,
+      expiresAt,
+    },
+  });
+
+  return {
+    success: true,
+    ownerUserId: owner.id,
+    ownerEmail: normalizedEmail,
+    expiresAt,
+  };
 }
 
 function normalizeSubscriptionStatus(status?: string) {
@@ -1259,62 +1693,355 @@ export async function revokeWorkspaceSupportAccessService(
   return revoked;
 }
 
-export async function deleteWorkspaceService(workspaceId: string, userId: string) {
-  assertRecord(await findWorkspaceById(workspaceId, userId), "Workspace not found");
-  await assertPlatformRoles(userId, ["super_admin", "developer"]);
-
-  const dependencyRes = await query(
-    `SELECT
-       (SELECT COUNT(*)::int FROM bots WHERE workspace_id = $1) AS bot_count,
-       (SELECT COUNT(*)::int FROM flows f JOIN bots b ON b.id = f.bot_id WHERE b.workspace_id = $1) AS flow_count,
-       (SELECT COUNT(*)::int FROM campaigns WHERE workspace_id = $1) AS campaign_count,
-       (SELECT COUNT(*)::int FROM platform_accounts WHERE workspace_id = $1) AS platform_account_count,
-       (SELECT COUNT(*)::int FROM conversations WHERE workspace_id = $1) AS conversation_count`,
-    [workspaceId]
+export async function processWorkspaceExportJobsService() {
+  const lockRes = await query(
+    `WITH next_job AS (
+       SELECT id
+       FROM queue_jobs
+       WHERE job_type = 'workspace_export'
+         AND status IN ('pending', 'retry')
+         AND COALESCE(available_at, NOW()) <= NOW()
+       ORDER BY COALESCE(available_at, created_at) ASC, created_at ASC
+       FOR UPDATE SKIP LOCKED
+       LIMIT 1
+     )
+     UPDATE queue_jobs q
+     SET status = 'processing',
+         locked_at = NOW(),
+         locked_by = 'backend-soft-delete-export',
+         updated_at = NOW()
+     FROM next_job
+     WHERE q.id = next_job.id
+     RETURNING q.*`
   );
 
-  const dependency = dependencyRes.rows[0];
-  const blockingCount = Number(dependency?.bot_count || 0)
-    + Number(dependency?.flow_count || 0)
-    + Number(dependency?.campaign_count || 0)
-    + Number(dependency?.platform_account_count || 0)
-    + Number(dependency?.conversation_count || 0);
-
-  if (blockingCount > 0) {
-    throw {
-      status: 409,
-      message:
-        "Workspace cannot be deleted while bots, flows, campaigns, integrations, or conversations still exist.",
-    };
+  const job = lockRes.rows[0];
+  if (!job) {
+    return { processed: 0 };
   }
+
+  const payload = job.payload && typeof job.payload === "object" ? job.payload : {};
+  const workspaceId = String(payload.workspaceId || "").trim();
+  const requestedBy = String(payload.requestedBy || "").trim();
+
+  try {
+    const workspaceRes = await query(
+      `SELECT id, name, owner_user_id, deleted_at, purge_after, status, created_at, updated_at
+       FROM workspaces
+       WHERE id = $1
+       LIMIT 1`,
+      [workspaceId]
+    );
+    const workspace = workspaceRes.rows[0];
+    if (!workspace) {
+      throw new Error("Workspace not found for export");
+    }
+
+    const [
+      members,
+      projects,
+      campaigns,
+      bots,
+      leads,
+      conversations,
+      contacts,
+      messages,
+      platformAccounts,
+      supportRequests,
+      auditLogs,
+    ] = await Promise.all([
+      query(
+        `SELECT wm.*, u.name, u.email, u.role AS global_role
+         FROM workspace_memberships wm
+         LEFT JOIN users u ON u.id = wm.user_id
+         WHERE wm.workspace_id = $1
+         ORDER BY wm.created_at ASC`,
+        [workspaceId]
+      ).then((res) => res.rows),
+      query(`SELECT * FROM projects WHERE workspace_id = $1 ORDER BY created_at ASC`, [workspaceId]).then((res) => res.rows),
+      query(`SELECT * FROM campaigns WHERE workspace_id = $1 ORDER BY created_at ASC`, [workspaceId]).then((res) => res.rows),
+      query(`SELECT * FROM bots WHERE workspace_id = $1 ORDER BY created_at ASC`, [workspaceId]).then((res) => res.rows),
+      query(`SELECT * FROM leads WHERE workspace_id = $1 ORDER BY created_at ASC`, [workspaceId]).then((res) => res.rows),
+      query(`SELECT * FROM conversations WHERE workspace_id = $1 ORDER BY created_at ASC`, [workspaceId]).then((res) => res.rows),
+      query(`SELECT * FROM contacts WHERE workspace_id = $1 ORDER BY created_at ASC`, [workspaceId]).then((res) => res.rows),
+      query(`SELECT * FROM messages WHERE workspace_id = $1 ORDER BY created_at ASC`, [workspaceId]).then((res) => res.rows),
+      query(`SELECT * FROM platform_accounts WHERE workspace_id = $1 ORDER BY created_at ASC`, [workspaceId]).then((res) =>
+        res.rows.map((row) => sanitizeExportPlatformAccount(row))
+      ),
+      query(`SELECT * FROM support_requests WHERE workspace_id = $1 ORDER BY created_at ASC`, [workspaceId]).then((res) => res.rows),
+      query(`SELECT * FROM audit_logs WHERE workspace_id = $1 ORDER BY created_at ASC`, [workspaceId]).then((res) => res.rows),
+    ]);
+
+    const exportDir = getWorkspaceExportDirectory();
+    await fs.mkdir(exportDir, { recursive: true });
+    const safeWorkspaceName = String(workspace.name || "workspace").replace(/[^a-z0-9_-]+/gi, "-").toLowerCase();
+    const fileName = `${safeWorkspaceName || "workspace"}-${workspace.id}-${Date.now()}.json`;
+    const filePath = path.join(exportDir, fileName);
+    const artifactBaseDir = path.join(
+      exportDir,
+      `${safeWorkspaceName || "workspace"}-${workspace.id}-${Date.now()}`
+    );
+    await fs.mkdir(artifactBaseDir, { recursive: true });
+
+    const csvArtifacts = [
+      ["members.csv", members],
+      ["projects.csv", projects],
+      ["campaigns.csv", campaigns],
+      ["bots.csv", bots],
+      ["leads.csv", leads],
+      ["conversations.csv", conversations],
+      ["contacts.csv", contacts],
+      ["messages.csv", messages],
+      ["platform_accounts.csv", platformAccounts],
+      ["support_requests.csv", supportRequests],
+      ["audit_logs.csv", auditLogs],
+    ] as const;
+    const artifacts: Array<{ type: string; fileName: string; filePath: string }> = [];
+    for (const [artifactName, rows] of csvArtifacts) {
+      const artifactPath = path.join(artifactBaseDir, artifactName);
+      await fs.writeFile(artifactPath, buildCsv(rows as Record<string, any>[]), "utf8");
+      artifacts.push({
+        type: "csv",
+        fileName: artifactName,
+        filePath: artifactPath,
+      });
+    }
+
+    const exportPayload = {
+      generatedAt: new Date().toISOString(),
+      formatVersion: 2,
+      summary: {
+        members: members.length,
+        projects: projects.length,
+        campaigns: campaigns.length,
+        bots: bots.length,
+        leads: leads.length,
+        conversations: conversations.length,
+        contacts: contacts.length,
+        messages: messages.length,
+        platformAccounts: platformAccounts.length,
+        supportRequests: supportRequests.length,
+        auditLogs: auditLogs.length,
+      },
+      workspace,
+      members,
+      projects,
+      campaigns,
+      bots,
+      leads,
+      conversations,
+      contacts,
+      messages,
+      platformAccounts,
+      supportRequests,
+      auditLogs,
+      artifacts: artifacts.map((artifact) => ({
+        type: artifact.type,
+        fileName: artifact.fileName,
+      })),
+    };
+
+    await fs.writeFile(filePath, JSON.stringify(exportPayload, null, 2), "utf8");
+
+    const owner = workspace.owner_user_id ? await findUserById(String(workspace.owner_user_id)) : null;
+    const recipientEmail =
+      String(owner?.email || payload.requestedByEmail || "").trim().toLowerCase() || null;
+    const downloadToken = crypto.randomBytes(24).toString("base64url");
+    const downloadUrl = buildWorkspaceExportDownloadUrl(downloadToken);
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+    if (recipientEmail) {
+      await createAuthToken({
+        userId: owner?.id || requestedBy,
+        workspaceId,
+        email: recipientEmail,
+        tokenHash: hashToken(downloadToken),
+        purpose: "workspace_export_download",
+        expiresAt,
+        metadata: {
+          filePath,
+          fileName,
+          workspaceId,
+          jobId: job.id,
+        },
+        createdBy: requestedBy || owner?.id || null,
+      });
+
+      await sendTransactionalEmail({
+        to: recipientEmail,
+        subject: `Your ${workspace.name} data export is ready`,
+        text: `Your workspace export is ready. Download it here: ${downloadUrl}\n\nThis link expires in 7 days.`,
+        html: `<div style="font-family:Arial,sans-serif;padding:24px;max-width:560px"><p>Your workspace export for <strong>${workspace.name}</strong> is ready.</p><p><a href="${downloadUrl}">Download your export</a></p><p style="color:#64748b;font-size:13px">This link expires in 7 days.</p></div>`,
+      });
+    }
+
+    await query(
+      `UPDATE queue_jobs
+       SET status = 'completed',
+           completed_at = NOW(),
+           locked_at = NULL,
+           locked_by = NULL,
+           updated_at = NOW(),
+           payload = COALESCE(payload, '{}'::jsonb) || $2::jsonb
+       WHERE id = $1`,
+      [
+        job.id,
+        JSON.stringify({
+          exportFileName: fileName,
+          exportFilePath: filePath,
+          artifactDirectory: artifactBaseDir,
+          artifacts: artifacts.map((artifact) => ({
+            type: artifact.type,
+            fileName: artifact.fileName,
+            filePath: artifact.filePath,
+          })),
+          exportEmail: recipientEmail,
+          completedAt: new Date().toISOString(),
+        }),
+      ]
+    );
+
+    await logAuditSafe({
+      userId: requestedBy || owner?.id || null,
+      workspaceId,
+      action: "export_ready",
+      entity: "workspace_export",
+      entityId: String(job.id),
+      newData: {
+        fileName,
+        recipientEmail,
+      },
+    });
+
+    return { processed: 1 };
+  } catch (error: any) {
+    await query(
+      `UPDATE queue_jobs
+       SET status = 'failed',
+           locked_at = NULL,
+           locked_by = NULL,
+           updated_at = NOW(),
+           error_message = $2
+       WHERE id = $1`,
+      [job.id, String(error?.message || error || "Export failed")]
+    );
+    throw error;
+  }
+}
+
+export async function deleteWorkspaceService(workspaceId: string, userId: string) {
+  const existing = assertRecord(await findWorkspaceById(workspaceId, userId), "Workspace not found");
+  await assertPlatformRoles(userId, ["super_admin", "developer"]);
+  await assertDestructiveActionRateLimit({
+    userId,
+    workspaceId,
+    actionKey: "schedule_delete",
+    limit: 3,
+    windowMinutes: 10,
+  });
+  if (existing.deleted_at) {
+    return existing;
+  }
+
+  const deletedAt = new Date().toISOString();
+  const purgeAfter = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
 
   const client = await db.connect();
   try {
     await client.query("BEGIN");
-    await client.query(`DELETE FROM project_users WHERE workspace_id = $1`, [workspaceId]);
-    await client.query(`DELETE FROM user_project_access WHERE workspace_id = $1`, [workspaceId]);
-    await client.query(
-      `DELETE FROM project_settings
-       WHERE project_id IN (SELECT id FROM projects WHERE workspace_id = $1)`,
+    const platformAccountRows = await client.query(
+      `SELECT *
+       FROM platform_accounts
+       WHERE workspace_id = $1`,
       [workspaceId]
     );
-    await client.query(`DELETE FROM projects WHERE workspace_id = $1`, [workspaceId]);
-    await client.query(`DELETE FROM workspace_memberships WHERE workspace_id = $1`, [workspaceId]);
-    await client.query(`DELETE FROM billing_subscriptions WHERE workspace_id = $1`, [workspaceId]);
+    const remoteRevocations = [];
+    for (const account of platformAccountRows.rows) {
+      const result = await revokeRemotePlatformConnectionService({
+        ...(account as any),
+        bot_id: String((account as any)?.metadata?.legacyBotId || ""),
+      }).catch((error: any) => ({
+        attempted: true,
+        ok: false,
+        provider: String(account.platform_type || "unknown"),
+        targets: [String(account.account_id || account.phone_number || account.id)],
+        message: String(error?.message || error || "Remote revocation failed"),
+      }));
+      remoteRevocations.push({
+        integrationId: account.id,
+        ...result,
+      });
+    }
+    await client.query(
+      `UPDATE projects
+       SET deleted_at = $2, updated_at = NOW()
+       WHERE workspace_id = $1 AND deleted_at IS NULL`,
+      [workspaceId, deletedAt]
+    );
+    await client.query(
+      `UPDATE campaigns
+       SET deleted_at = $2, updated_at = NOW()
+       WHERE workspace_id = $1 AND deleted_at IS NULL`,
+      [workspaceId, deletedAt]
+    );
+    await client.query(
+      `UPDATE bots
+       SET deleted_at = $2, updated_at = NOW()
+       WHERE workspace_id = $1 AND deleted_at IS NULL`,
+      [workspaceId, deletedAt]
+    );
+    await client.query(
+      `UPDATE leads
+       SET deleted_at = $2, updated_at = NOW()
+       WHERE workspace_id = $1 AND deleted_at IS NULL`,
+      [workspaceId, deletedAt]
+    );
+    await client.query(
+      `UPDATE conversations
+       SET deleted_at = $2, updated_at = NOW()
+       WHERE workspace_id = $1 AND deleted_at IS NULL`,
+      [workspaceId, deletedAt]
+    );
+    await client.query(
+      `UPDATE platform_accounts
+       SET
+         status = 'inactive',
+         token = NULL,
+         metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
+           'softDeletedAt', $2::text,
+           'softDeleteRevokedBy', $3::text,
+           'softDeleteRevocationReason', 'workspace_scheduled_for_deletion'
+         ),
+         updated_at = NOW()
+       WHERE workspace_id = $1`,
+      [workspaceId, deletedAt, userId]
+    );
     const deleted = await client.query(
-      `DELETE FROM workspaces
+      `UPDATE workspaces
+       SET deleted_at = $2,
+           purge_after = $3,
+           status = 'archived',
+           archived_at = COALESCE(archived_at, $2),
+           lock_reason = 'Scheduled for deletion',
+           updated_at = NOW()
        WHERE id = $1
        RETURNING *`,
-      [workspaceId]
+      [workspaceId, deletedAt, purgeAfter]
     );
     await client.query("COMMIT");
     await logAuditSafe({
       userId,
       workspaceId,
-      action: "delete",
+      action: "schedule_delete",
       entity: "workspace",
       entityId: workspaceId,
-      oldData: deleted.rows[0] || {},
+      oldData: existing,
+      newData: deleted.rows[0] || {},
+      metadata: {
+        deletedAt,
+        purgeAfter,
+        remoteRevocations,
+      },
     });
     return deleted.rows[0];
   } catch (error) {
@@ -1323,4 +2050,58 @@ export async function deleteWorkspaceService(workspaceId: string, userId: string
   } finally {
     client.release();
   }
+}
+
+export async function purgeSoftDeletedWorkspacesService() {
+  const dueRes = await query(
+    `SELECT id
+     FROM workspaces
+     WHERE deleted_at IS NOT NULL
+       AND COALESCE(purge_after, deleted_at + INTERVAL '30 days') <= NOW()`
+  );
+
+  let purged = 0;
+
+  for (const row of dueRes.rows) {
+    const workspaceId = String(row.id || "").trim();
+    if (!workspaceId) {
+      continue;
+    }
+
+    const client = await db.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(`DELETE FROM queue_jobs WHERE payload->>'workspaceId' = $1`, [workspaceId]);
+      await client.query(`DELETE FROM auth_tokens WHERE workspace_id = $1`, [workspaceId]);
+      await client.query(`DELETE FROM support_requests WHERE workspace_id = $1`, [workspaceId]);
+      await client.query(`DELETE FROM support_access WHERE workspace_id = $1`, [workspaceId]);
+      await client.query(`DELETE FROM platform_accounts WHERE workspace_id = $1`, [workspaceId]);
+      await client.query(`DELETE FROM conversations WHERE workspace_id = $1`, [workspaceId]);
+      await client.query(`DELETE FROM leads WHERE workspace_id = $1`, [workspaceId]);
+      await client.query(`DELETE FROM bots WHERE workspace_id = $1`, [workspaceId]);
+      await client.query(`DELETE FROM campaigns WHERE workspace_id = $1`, [workspaceId]);
+      await client.query(`DELETE FROM project_users WHERE workspace_id = $1`, [workspaceId]);
+      await client.query(`DELETE FROM user_project_access WHERE workspace_id = $1`, [workspaceId]);
+      await client.query(
+        `DELETE FROM project_settings
+         WHERE project_id IN (SELECT id FROM projects WHERE workspace_id = $1)`,
+        [workspaceId]
+      );
+      await client.query(`DELETE FROM projects WHERE workspace_id = $1`, [workspaceId]);
+      await client.query(`DELETE FROM workspace_memberships WHERE workspace_id = $1`, [workspaceId]);
+      await client.query(`DELETE FROM billing_subscriptions WHERE workspace_id = $1`, [workspaceId]);
+      await client.query(`DELETE FROM workspaces WHERE id = $1`, [workspaceId]);
+      await client.query("COMMIT");
+      purged += 1;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  return {
+    purged,
+  };
 }

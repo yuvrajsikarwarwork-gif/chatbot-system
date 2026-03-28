@@ -51,10 +51,13 @@ export default function SystemSettingsPage() {
   const [savingEmail, setSavingEmail] = useState(false);
   const [testingEmail, setTestingEmail] = useState(false);
   const [emailForm, setEmailForm] = useState({
+    provider: "smtp",
     smtpHost: "",
     smtpPort: "587",
     smtpUser: "",
     smtpFrom: "",
+    smtpReplyTo: "",
+    testRecipient: "",
     smtpPass: "",
   });
   const [aiProviders, setAiProviders] = useState<AiProvidersSettings | null>(null);
@@ -64,8 +67,12 @@ export default function SystemSettingsPage() {
   const [aiForm, setAiForm] = useState({
     defaultProvider: "openai",
     defaultModel: "",
+    fallbackProvider: "gemini",
+    fallbackModel: "",
     openaiModel: "",
     geminiModel: "",
+    temperature: "0.2",
+    maxOutputTokens: "1024",
     openaiApiKey: "",
     geminiApiKey: "",
   });
@@ -74,10 +81,14 @@ export default function SystemSettingsPage() {
   const [editingBillingWallet, setEditingBillingWallet] = useState(false);
   const [savingBillingWallet, setSavingBillingWallet] = useState(false);
   const [billingWalletForm, setBillingWalletForm] = useState({
+    billingProvider: "hybrid",
     stripePublicKey: "",
     stripeSecretKey: "",
+    stripeWebhookSecret: "",
     razorpayKeyId: "",
     razorpayKeySecret: "",
+    razorpayWebhookSecret: "",
+    billingWebhookUrl: "",
     defaultCurrency: "INR",
     walletAutoTopupDefaultEnabled: false,
     walletAutoTopupDefaultAmount: "0",
@@ -140,10 +151,13 @@ export default function SystemSettingsPage() {
     platformSettingsService.getEmailServices().then((data) => {
       setEmailSettings(data);
       setEmailForm({
+        provider: data.editable.provider || "smtp",
         smtpHost: data.editable.smtpHost || "",
         smtpPort: String(data.editable.smtpPort || 587),
         smtpUser: data.editable.smtpUser || "",
         smtpFrom: data.editable.smtpFrom || "",
+        smtpReplyTo: data.editable.smtpReplyTo || "",
+        testRecipient: data.editable.testRecipient || "",
         smtpPass: "",
       });
     }).catch((err) => {
@@ -157,8 +171,12 @@ export default function SystemSettingsPage() {
       setAiForm({
         defaultProvider: data.editable.defaultProvider || "openai",
         defaultModel: data.editable.defaultModel || "",
+        fallbackProvider: data.editable.fallbackProvider || "gemini",
+        fallbackModel: data.editable.fallbackModel || "",
         openaiModel: data.editable.openaiModel || "",
         geminiModel: data.editable.geminiModel || "",
+        temperature: String(data.editable.temperature ?? 0.2),
+        maxOutputTokens: String(data.editable.maxOutputTokens ?? 1024),
         openaiApiKey: "",
         geminiApiKey: "",
       });
@@ -171,10 +189,14 @@ export default function SystemSettingsPage() {
     platformSettingsService.getBillingWallet().then((data) => {
       setBillingWallet(data);
       setBillingWalletForm({
+        billingProvider: data.editable.billingProvider || "hybrid",
         stripePublicKey: data.editable.stripePublicKey || "",
         stripeSecretKey: "",
+        stripeWebhookSecret: "",
         razorpayKeyId: data.editable.razorpayKeyId || "",
         razorpayKeySecret: "",
+        razorpayWebhookSecret: "",
+        billingWebhookUrl: data.editable.billingWebhookUrl || "",
         defaultCurrency: data.editable.defaultCurrency || "INR",
         walletAutoTopupDefaultEnabled: Boolean(data.editable.walletAutoTopupDefaultEnabled),
         walletAutoTopupDefaultAmount: String(data.editable.walletAutoTopupDefaultAmount ?? 0),
@@ -290,10 +312,13 @@ export default function SystemSettingsPage() {
       setEmailSettings(next);
       setEditingEmail(false);
       setEmailForm({
+        provider: next.editable.provider || "smtp",
         smtpHost: next.editable.smtpHost || "",
         smtpPort: String(next.editable.smtpPort || 587),
         smtpUser: next.editable.smtpUser || "",
         smtpFrom: next.editable.smtpFrom || "",
+        smtpReplyTo: next.editable.smtpReplyTo || "",
+        testRecipient: next.editable.testRecipient || "",
         smtpPass: "",
       });
       setFeedback("Email services updated.");
@@ -321,7 +346,18 @@ export default function SystemSettingsPage() {
       const next = await platformSettingsService.updateAiProviders(aiForm);
       setAiProviders(next);
       setEditingAi(false);
-      setAiForm((current) => ({ ...current, openaiApiKey: "", geminiApiKey: "" }));
+      setAiForm({
+        defaultProvider: next.editable.defaultProvider || "openai",
+        defaultModel: next.editable.defaultModel || "",
+        fallbackProvider: next.editable.fallbackProvider || "gemini",
+        fallbackModel: next.editable.fallbackModel || "",
+        openaiModel: next.editable.openaiModel || "",
+        geminiModel: next.editable.geminiModel || "",
+        temperature: String(next.editable.temperature ?? 0.2),
+        maxOutputTokens: String(next.editable.maxOutputTokens ?? 1024),
+        openaiApiKey: "",
+        geminiApiKey: "",
+      });
       setFeedback("AI provider settings updated.");
     } catch (err: any) {
       setError(err?.response?.data?.error || "Failed to save AI settings");
@@ -340,7 +376,20 @@ export default function SystemSettingsPage() {
       });
       setBillingWallet(next);
       setEditingBillingWallet(false);
-      setBillingWalletForm((current) => ({ ...current, stripeSecretKey: "", razorpayKeySecret: "" }));
+      setBillingWalletForm({
+        billingProvider: next.editable.billingProvider || "hybrid",
+        stripePublicKey: next.editable.stripePublicKey || "",
+        stripeSecretKey: "",
+        stripeWebhookSecret: "",
+        razorpayKeyId: next.editable.razorpayKeyId || "",
+        razorpayKeySecret: "",
+        razorpayWebhookSecret: "",
+        billingWebhookUrl: next.editable.billingWebhookUrl || "",
+        defaultCurrency: next.editable.defaultCurrency || "INR",
+        walletAutoTopupDefaultEnabled: Boolean(next.editable.walletAutoTopupDefaultEnabled),
+        walletAutoTopupDefaultAmount: String(next.editable.walletAutoTopupDefaultAmount ?? 0),
+        walletLowBalanceThresholdDefault: String(next.editable.walletLowBalanceThresholdDefault ?? 0),
+      });
       setFeedback("Billing and wallet settings updated.");
     } catch (err: any) {
       setError(err?.response?.data?.error || "Failed to save billing settings");
@@ -678,10 +727,13 @@ export default function SystemSettingsPage() {
                         ) : editingEmail ? (
                           <div className="mt-4 grid gap-3 sm:grid-cols-2">
                             {[
+                              ["Provider", "provider", "smtp"],
                               ["SMTP Host", "smtpHost", "smtp.example.com"],
                               ["SMTP Port", "smtpPort", "587"],
                               ["SMTP User", "smtpUser", "user@example.com"],
                               ["SMTP From", "smtpFrom", "noreply@example.com"],
+                              ["SMTP Reply-To", "smtpReplyTo", "support@example.com"],
+                              ["Test Recipient", "testRecipient", "ops@example.com"],
                               ["SMTP Password", "smtpPass", "Leave blank to keep current password"],
                             ].map(([label, key, placeholder]) => (
                               <label key={String(key)} className="space-y-2">
@@ -692,10 +744,13 @@ export default function SystemSettingsPage() {
                           </div>
                         ) : (
                           <div className="mt-4 rounded-[1rem] border border-dashed border-[var(--line)] bg-[var(--surface-strong)] px-4 py-3 text-xs leading-5 text-[var(--muted)]">
+                            Provider: {emailSettings?.status.provider || "smtp"}<br />
                             Host: {emailSettings?.previews.smtpHost || "Not configured"}<br />
                             Port: {emailSettings?.previews.smtpPort || 587}<br />
                             User: {emailSettings?.previews.smtpUser || "Not configured"}<br />
                             From: {emailSettings?.previews.smtpFrom || "Not configured"}<br />
+                            Reply-To: {emailSettings?.previews.smtpReplyTo || "Not configured"}<br />
+                            Test recipient: {emailSettings?.previews.testRecipient || "Not configured"}<br />
                             Password: {emailSettings?.previews.smtpPassConfigured ? "Configured" : "Missing"}
                           </div>
                         )}
@@ -733,8 +788,12 @@ export default function SystemSettingsPage() {
                             {[
                               ["Default Provider", "defaultProvider", "openai"],
                               ["Default Model", "defaultModel", "gpt-5.4-mini"],
+                              ["Fallback Provider", "fallbackProvider", "gemini"],
+                              ["Fallback Model", "fallbackModel", "gemini-1.5-pro"],
                               ["OpenAI Model", "openaiModel", "gpt-5.4-mini"],
                               ["Gemini Model", "geminiModel", "gemini-1.5-pro"],
+                              ["Temperature", "temperature", "0.2"],
+                              ["Max Output Tokens", "maxOutputTokens", "1024"],
                               ["OpenAI API Key", "openaiApiKey", "Leave blank to keep current key"],
                               ["Gemini API Key", "geminiApiKey", "Leave blank to keep current key"],
                             ].map(([label, key, placeholder]) => (
@@ -748,6 +807,10 @@ export default function SystemSettingsPage() {
                           <div className="mt-4 rounded-[1rem] border border-dashed border-[var(--line)] bg-[var(--surface-strong)] px-4 py-3 text-xs leading-5 text-[var(--muted)]">
                             Default provider: {aiProviders?.status.defaultProvider || "unknown"}<br />
                             Default model: {aiProviders?.editable.defaultModel || "Not configured"}<br />
+                            Fallback provider: {aiProviders?.editable.fallbackProvider || "Not configured"}<br />
+                            Fallback model: {aiProviders?.editable.fallbackModel || "Not configured"}<br />
+                            Temperature: {aiProviders?.editable.temperature ?? 0.2}<br />
+                            Max output tokens: {aiProviders?.editable.maxOutputTokens ?? 1024}<br />
                             OpenAI key: {aiProviders?.status.openaiConfigured ? "Configured" : "Missing"}<br />
                             Gemini key: {aiProviders?.status.geminiConfigured ? "Configured" : "Missing"}
                           </div>
@@ -779,10 +842,14 @@ export default function SystemSettingsPage() {
                         ) : editingBillingWallet ? (
                           <div className="mt-4 grid gap-3 sm:grid-cols-2">
                             {[
+                              ["Billing Provider", "billingProvider", "hybrid"],
                               ["Stripe Public Key", "stripePublicKey", "pk_live_..."],
                               ["Stripe Secret Key", "stripeSecretKey", "Leave blank to keep current secret"],
+                              ["Stripe Webhook Secret", "stripeWebhookSecret", "whsec_..."],
                               ["Razorpay Key Id", "razorpayKeyId", "rzp_live_..."],
                               ["Razorpay Key Secret", "razorpayKeySecret", "Leave blank to keep current secret"],
+                              ["Razorpay Webhook Secret", "razorpayWebhookSecret", "Leave blank to keep current secret"],
+                              ["Billing Webhook URL", "billingWebhookUrl", "https://api.example.com/api/billing/webhook"],
                               ["Default Currency", "defaultCurrency", "INR"],
                               ["Wallet Auto Top-up Amount", "walletAutoTopupDefaultAmount", "0"],
                               ["Low Balance Threshold", "walletLowBalanceThresholdDefault", "0"],
@@ -800,7 +867,11 @@ export default function SystemSettingsPage() {
                         ) : (
                           <div className="mt-4 rounded-[1rem] border border-dashed border-[var(--line)] bg-[var(--surface-strong)] px-4 py-3 text-xs leading-5 text-[var(--muted)]">
                             Stripe: {billingWallet?.status.stripeConfigured ? "Configured" : "Missing"}<br />
+                            Stripe webhook secret: {billingWallet?.status.stripeWebhookSecretConfigured ? "Configured" : "Missing"}<br />
                             Razorpay: {billingWallet?.status.razorpayConfigured ? "Configured" : "Missing"}<br />
+                            Razorpay webhook secret: {billingWallet?.status.razorpayWebhookSecretConfigured ? "Configured" : "Missing"}<br />
+                            Billing provider: {billingWallet?.status.billingProvider || "hybrid"}<br />
+                            Billing webhook URL: {billingWallet?.editable.billingWebhookUrl || "Not configured"}<br />
                             Default currency: {billingWallet?.editable.defaultCurrency || "INR"}<br />
                             Auto top-up default: {billingWallet?.editable.walletAutoTopupDefaultEnabled ? "Enabled" : "Disabled"}
                           </div>

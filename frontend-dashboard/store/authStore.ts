@@ -13,6 +13,9 @@ interface User {
 interface WorkspaceMembership {
   workspace_id: string;
   workspace_name?: string;
+  workspace_status?: string;
+  workspace_deleted_at?: string | null;
+  workspace_purge_after?: string | null;
   role: "workspace_admin" | "editor" | "agent" | "viewer" | "workspace_owner" | "admin" | "user";
   status: "active" | "inactive" | "invited";
   permissions_json?: Record<string, any>;
@@ -141,6 +144,7 @@ const DEFAULT_WORKSPACE_PERMISSIONS: Record<"workspace_admin" | "editor" | "agen
     "manage_workspace",
     "manage_users",
     "manage_permissions",
+    "use_ai_nodes",
     "view_projects",
     "create_projects",
     "edit_projects",
@@ -167,6 +171,7 @@ const DEFAULT_WORKSPACE_PERMISSIONS: Record<"workspace_admin" | "editor" | "agen
   ],
   editor: [
     "view_workspace",
+    "use_ai_nodes",
     "view_projects",
     "view_campaigns",
     "can_create_campaign",

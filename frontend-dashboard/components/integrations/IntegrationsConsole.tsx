@@ -326,6 +326,20 @@ export default function IntegrationsConsole() {
     () => accounts.filter((account) => account.platform_type === activePlatform),
     [accounts, activePlatform]
   );
+  const reconnectRequiredAccounts = useMemo(
+    () =>
+      accounts.filter((account) => {
+        const metadata =
+          account.metadata && typeof account.metadata === "object"
+            ? (account.metadata as Record<string, unknown>)
+            : {};
+        return (
+          String(account.status || "").toLowerCase() === "inactive" &&
+          String(metadata.softDeleteRevocationReason || "") === "workspace_scheduled_for_deletion"
+        );
+      }),
+    [accounts]
+  );
   const selectedBotId =
     (activeBotId &&
     projectBots.some(
@@ -583,6 +597,31 @@ export default function IntegrationsConsole() {
       ) : (
         <div className="mx-auto max-w-7xl space-y-6">
           <WorkspaceStatusBanner workspace={activeWorkspace} />
+          {reconnectRequiredAccounts.length ? (
+            <section className="rounded-[1.35rem] border border-amber-200 bg-amber-50 p-5 shadow-sm">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-700">
+                    Reconnect Required
+                  </div>
+                  <div className="mt-2 text-base font-semibold tracking-tight text-amber-950">
+                    {reconnectRequiredAccounts.length} integration
+                    {reconnectRequiredAccounts.length === 1 ? "" : "s"} still need fresh credentials.
+                  </div>
+                  <div className="mt-1 text-sm leading-6 text-amber-800">
+                    This workspace was previously scheduled for deletion, so stored provider tokens were revoked and cleared. Reconnect each affected channel before sending or receiving live traffic again.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActivePlatform(String(reconnectRequiredAccounts[0]?.platform_type || "whatsapp"))}
+                  className="rounded-xl border border-amber-300 bg-white px-4 py-2 text-sm font-medium text-amber-900 transition hover:bg-amber-100"
+                >
+                  Review affected channels
+                </button>
+              </div>
+            </section>
+          ) : null}
           <section className="rounded-[1.35rem] border border-[var(--line)] bg-[var(--surface)] p-5 shadow-sm">
             <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
               <div className="min-w-0 flex items-center gap-3 text-sm text-[var(--muted)]">

@@ -11,6 +11,9 @@ export interface Workspace {
   effective_plan_id?: string | null;
   status: string;
   locked_at?: string | null;
+  archived_at?: string | null;
+  deleted_at?: string | null;
+  purge_after?: string | null;
   subscription_id?: string | null;
   subscription_status?: string | null;
   expiry_date?: string | null;
@@ -152,6 +155,18 @@ export interface WorkspaceOverview {
   };
 }
 
+export interface WorkspaceExportRequest {
+  id: string;
+  status: string;
+  createdAt?: string | null;
+  completedAt?: string | null;
+  requestedBy?: string | null;
+  requestedAt?: string | null;
+  fileName?: string | null;
+  emailedTo?: string | null;
+  previewDownloadPath?: string | null;
+}
+
 export const workspaceService = {
   list: async (): Promise<Workspace[]> => {
     const res = await apiClient.get("/workspaces");
@@ -207,6 +222,21 @@ export const workspaceService = {
     return res.data;
   },
 
+  archive: async (id: string): Promise<Workspace> => {
+    const res = await apiClient.post(`/workspaces/${id}/archive`);
+    return res.data;
+  },
+
+  restore: async (id: string): Promise<Workspace> => {
+    const res = await apiClient.post(`/workspaces/${id}/restore`);
+    return res.data;
+  },
+
+  selfRestore: async (id: string): Promise<Workspace> => {
+    const res = await apiClient.post(`/workspaces/${id}/self-restore`);
+    return res.data;
+  },
+
   updateBilling: async (id: string, payload: Record<string, unknown>): Promise<Workspace> => {
     const res = await apiClient.put(`/workspaces/${id}/billing`, payload);
     return res.data;
@@ -255,5 +285,32 @@ export const workspaceService = {
   denySupportRequest: async (id: string, requestId: string, payload: Record<string, unknown> = {}) => {
     const res = await apiClient.post(`/workspaces/${id}/support-requests/${requestId}/deny`, payload);
     return res.data;
+  },
+
+  emergencyResetOwnerPassword: async (id: string) => {
+    const res = await apiClient.post(`/workspaces/${id}/members/emergency-owner-reset`);
+    return res.data;
+  },
+
+  requestExport: async (id: string) => {
+    const res = await apiClient.post(`/workspaces/${id}/export-requests`);
+    return res.data;
+  },
+
+  listExportRequests: async (id: string): Promise<WorkspaceExportRequest[]> => {
+    const res = await apiClient.get(`/workspaces/${id}/export-requests`);
+    return Array.isArray(res.data) ? res.data : [];
+  },
+
+  downloadExport: async (id: string, jobId: string): Promise<{ blob: Blob; fileName: string }> => {
+    const res = await apiClient.get(`/workspaces/${id}/export-requests/${jobId}/download`, {
+      responseType: "blob",
+    });
+    const disposition = String(res.headers?.["content-disposition"] || "");
+    const match = disposition.match(/filename="?([^"]+)"?/i);
+    return {
+      blob: res.data as Blob,
+      fileName: match?.[1] || `workspace-export-${jobId}.json`,
+    };
   },
 };

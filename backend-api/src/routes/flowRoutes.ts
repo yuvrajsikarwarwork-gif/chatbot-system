@@ -4,6 +4,7 @@ import { Router } from "express";
 
 import {
   getFlowsByBot,
+  getFlowBuilderCapabilities,
   getFlowSummariesByBot,
   getFlow,
   createFlowCtrl,
@@ -28,6 +29,12 @@ router.get(
   "/bot/:botId",
   requireBotPermission(WORKSPACE_PERMISSIONS.viewFlows),
   getFlowsByBot
+);
+
+router.get(
+  "/bot/:botId/capabilities",
+  requireBotPermission(WORKSPACE_PERMISSIONS.viewFlows),
+  getFlowBuilderCapabilities
 );
 
 router.get(

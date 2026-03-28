@@ -2,6 +2,8 @@ interface WorkspaceStatusBannerProps {
   workspace?: {
     name?: string;
     status?: string | null;
+    deleted_at?: string | null;
+    purge_after?: string | null;
     subscription_status?: string | null;
     expiry_date?: string | null;
     grace_period_end?: string | null;
@@ -31,9 +33,15 @@ export default function WorkspaceStatusBanner({
   let tone = "";
   let message = "";
 
-  if (workspaceStatus === "locked") {
+  if (workspace.deleted_at) {
+    tone = "border-rose-200 bg-rose-50 text-rose-700";
+    message = `Scheduled for deletion${workspace.purge_after ? ` on ${formatDate(workspace.purge_after)}` : ""}.`;
+  } else if (workspaceStatus === "locked") {
     tone = "border-red-200 bg-red-50 text-red-700";
     message = workspace.lock_reason || "This workspace is locked.";
+  } else if (workspaceStatus === "archived") {
+    tone = "border-slate-200 bg-slate-50 text-slate-700";
+    message = workspace.lock_reason || "This workspace is archived and normal access is disabled.";
   } else if (workspaceStatus === "suspended") {
     tone = "border-amber-200 bg-amber-50 text-amber-700";
     message = workspace.lock_reason || "This workspace is on hold and messaging is suspended.";

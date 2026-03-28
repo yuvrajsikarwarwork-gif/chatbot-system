@@ -24,7 +24,7 @@ const EMPTY_FORM = {
 };
 
 export default function WorkspacesPage() {
-  const { canViewPage } = useVisibility();
+  const { canViewPage, isPlatformOperator } = useVisibility();
   const setActiveWorkspace = useAuthStore((state) => state.setActiveWorkspace);
   const hasHydrated = useAuthStore((state) => state.hasHydrated);
   const user = useAuthStore((state) => state.user);
@@ -46,7 +46,10 @@ export default function WorkspacesPage() {
     setLoading(true);
     try {
       setError("");
-      const [workspaceRows, planRows] = await Promise.all([workspaceService.list(), planService.list()]);
+      const [workspaceRows, planRows] = await Promise.all([
+        workspaceService.list(),
+        isPlatformOperator ? planService.list() : Promise.resolve([]),
+      ]);
       setWorkspaces(Array.isArray(workspaceRows) ? workspaceRows : []);
       setPlans(Array.isArray(planRows) ? planRows : []);
     } catch (err: any) {
@@ -61,7 +64,7 @@ export default function WorkspacesPage() {
   useEffect(() => {
     if (!canViewWorkspacesPage) return;
     loadPage().catch(console.error);
-  }, [canViewWorkspacesPage]);
+  }, [canViewWorkspacesPage, isPlatformOperator]);
 
   const stats = useMemo(
     () => ({

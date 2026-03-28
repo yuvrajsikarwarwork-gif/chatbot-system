@@ -1,0 +1,2 @@
+id,user_id,workspace_id,platform_type,name,phone_number,account_id,token,business_id,status,metadata,created_at,updated_at,project_id
+8e2bd5fc-dda4-4e7d-9ade-d94b2727152d,a5b44a33-9c6f-45be-a0c4-380a0ca17395,9b66b88d-220b-4eed-92b2-8503ce3ef6b4,telegram,Export Telegram 1774705452832,,telegram-1774705452832,,,inactive,"{""softDeleteRevocationReason"":""workspace_scheduled_for_deletion""}","""2026-03-28T13:44:12.980Z""","""2026-03-28T13:44:12.980Z""",7069366f-1d1f-40e5-94f5-478d5cb6adb3

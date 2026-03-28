@@ -1,7 +1,7 @@
 import { 
   MessageSquare, MousePointerClick, List, Image as ImageIcon, Type, Zap, 
   Clock, LogOut, Split, Database, Webhook, Timer, ArrowRight, 
-  ShieldAlert, Play, Hourglass, LayoutTemplate, Headset, Bot
+  ShieldAlert, Play, Hourglass, LayoutTemplate, Headset, Bot, BrainCircuit
 } from "lucide-react";
 
 export const AUTO_SAVE_DELAY = 10000;
@@ -30,8 +30,14 @@ export const NODE_CATEGORIES = [
       { type: "menu_list", label: "List Menu", icon: List, info: "Dropdown-style menus (Max 10)." }
     ] 
   },
+  {
+    title: "4. AI & Knowledge", color: "sky",
+    items: [
+      { type: "knowledge_lookup", label: "AI Knowledge", icon: BrainCircuit, info: "Search workspace knowledge and save results for downstream replies." }
+    ]
+  },
   { 
-    title: "4. System & Logic", color: "amber",
+    title: "5. System & Logic", color: "amber",
     items: [
       { type: "condition", label: "Condition", icon: Split, info: "Decision branching logic." },
       { type: "api", label: "API Request", icon: Webhook, info: "External system integrations." },
@@ -43,7 +49,7 @@ export const NODE_CATEGORIES = [
       { type: "error_handler", label: "Error Handler", icon: ShieldAlert, info: "Floating global listener for unrecognized inputs." },
       { type: "assign_agent", label: "Assign Agent", icon: Headset, info: "Switch from Bot to Human mode." },
       { type: "resume_bot", label: "Resume Bot", icon: Bot, info: "Switch back to Bot with Resume/Restart options." },
-      { type: "goto", label: "Go To", icon: ArrowRight, info: "Bridge to specific Node IDs or Bot IDs." },
+      { type: "goto", label: "Go To", icon: ArrowRight, info: "Jump to another node, another flow in this bot, or another bot." },
       { type: "end", label: "End Flow", icon: LogOut, info: "Clean session termination." }
     ] 
   }

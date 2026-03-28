@@ -24,6 +24,7 @@ import {
   WORKSPACE_PERMISSIONS,
 } from "./workspaceAccessService";
 import { logAuditSafe } from "./auditLogService";
+import { revokeRemotePlatformConnectionService } from "./integrationService";
 
 async function filterPlatformAccountsByProjectScope<
   T extends { workspace_id?: string | null; project_id?: string | null }
@@ -288,6 +289,16 @@ export async function deletePlatformAccountService(id: string, userId: string) {
     workspacePermission: WORKSPACE_PERMISSIONS.managePlatformAccounts,
     allowedProjectRoles: ["project_admin"],
   });
+  const remoteRevocation = await revokeRemotePlatformConnectionService({
+    ...(existing as any),
+    bot_id: String((existing as any)?.metadata?.legacyBotId || ""),
+  }).catch((error: any) => ({
+    attempted: true,
+    ok: false,
+    provider: String(existing.platform_type || "unknown"),
+    targets: [String(existing.account_id || existing.phone_number || existing.id)],
+    message: String(error?.message || error || "Remote revocation failed"),
+  }));
   await logAuditSafe({
     userId,
     workspaceId: existing.workspace_id,
@@ -296,6 +307,9 @@ export async function deletePlatformAccountService(id: string, userId: string) {
     entity: "integration",
     entityId: id,
     oldData: existing,
+    metadata: {
+      remoteRevocation,
+    },
   });
   await deletePlatformAccount(id, userId);
 }

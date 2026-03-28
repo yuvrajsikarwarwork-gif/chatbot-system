@@ -143,11 +143,16 @@ export async function validateWorkspaceContext(
   }
 
   const workspaceStatus = String(workspace.status || "").toLowerCase();
-  if (!["active", "paused", "locked", "suspended"].includes(workspaceStatus)) {
+  if (!["active", "paused", "locked", "suspended", "archived"].includes(workspaceStatus)) {
     throw { status: 400, message: "Workspace must be active" };
   }
 
-  if ((workspaceStatus === "locked" || workspaceStatus === "suspended") && !options?.allowLocked) {
+  if (
+    (workspaceStatus === "locked" ||
+      workspaceStatus === "suspended" ||
+      workspaceStatus === "archived") &&
+    !options?.allowLocked
+  ) {
     throw { status: 403, message: "Workspace is locked" };
   }
 

@@ -4,6 +4,7 @@ import { AuthRequest } from "../middleware/authMiddleware";
 import {
   createNewFlowService,
   getFlowsByBotService,
+  getFlowBuilderCapabilitiesService,
   getFlowSummariesByBotService,
   getFlowService,
   saveFlowService,
@@ -84,6 +85,20 @@ export async function getFlowSummariesByBot(req: AuthRequest, res: Response, nex
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
     const data = await getFlowSummariesByBotService(botId, userId);
+    res.json(data);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getFlowBuilderCapabilities(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { botId } = req.params;
+    const userId = getUserId(req);
+    if (!botId || botId === "undefined") return res.status(400).json({ error: "botId is required" });
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+    const data = await getFlowBuilderCapabilitiesService(botId, userId);
     res.json(data);
   } catch (err) {
     next(err);

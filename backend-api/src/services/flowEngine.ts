@@ -20,6 +20,7 @@ import { analyzeMessageSentiment } from "./sentimentAnalysisService";
 import { retrieveKnowledgeForWorkspace } from "./ragService";
 import { normalizeWhatsAppPlatformUserId } from "./contactIdentityService";
 import { validateWorkspaceContext } from "./businessValidationService";
+import { findBotById } from "../models/botModel";
 
 const MAX_RETRY_LIMIT = 3;
 
@@ -746,6 +747,224 @@ const findStartNodeTargetInFlow = (flowJson: any) => {
   return nodes.find((node: any) => String(node.id) === String(edge?.target)) || null;
 };
 
+const resolveFlowEntryNode = (flowJson: any) => {
+  const nodes = Array.isArray(flowJson?.nodes) ? flowJson.nodes : [];
+  return findStartNodeTargetInFlow(flowJson) || nodes[0] || null;
+};
+
+const selectTransferFlow = (
+  flows: FlowRuntimeRecord[],
+  targetFlowId?: string | null
+) => {
+  const normalizedTargetFlowId = String(targetFlowId || "").trim();
+  if (normalizedTargetFlowId) {
+    return (
+      flows.find((flow) => String(flow.id) === normalizedTargetFlowId) || null
+    );
+  }
+
+  return flows[0] || null;
+};
+
+const buildHandoffContextPatch = (input: {
+  handoffType: "flow" | "bot";
+  fromBotId: string;
+  fromFlowId?: string | null | undefined;
+  toBotId: string;
+  toFlowId?: string | null | undefined;
+  gotoNodeId: string;
+}) =>
+  JSON.stringify({
+    handoff: {
+      type: input.handoffType,
+      fromBotId: input.fromBotId,
+      fromFlowId: input.fromFlowId || null,
+      toBotId: input.toBotId,
+      toFlowId: input.toFlowId || null,
+      gotoNodeId: input.gotoNodeId,
+      transferredAt: new Date().toISOString(),
+    },
+  });
+
+const performGotoHandoff = async (input: {
+  conversationId: string;
+  currentBotId: string;
+  currentFlowId?: string | null;
+  currentNodeId: string;
+  gotoData: any;
+  normalizedChannel: string;
+  platformUserId: string;
+}) => {
+  const gotoType = String(input.gotoData?.gotoType || "").trim().toLowerCase();
+  const conversationRes = await query(
+    `SELECT c.*, ct.name AS contact_name, ct.email AS contact_email, ct.phone AS contact_phone
+     FROM conversations c
+     LEFT JOIN contacts ct ON ct.id = c.contact_id
+     WHERE c.id = $1
+     LIMIT 1`,
+    [input.conversationId]
+  );
+  const conversation = conversationRes.rows[0];
+  if (!conversation) {
+    throw new Error("Conversation not found for Go To handoff.");
+  }
+
+  if (gotoType === "flow") {
+    const flows = await loadEligibleFlows(input.currentBotId, conversation.project_id || null);
+    const targetFlow = selectTransferFlow(flows, input.gotoData?.targetFlowId || null);
+    if (!targetFlow) {
+      throw new Error("Target flow could not be found for same-bot handoff.");
+    }
+
+    const targetNode = resolveFlowEntryNode(targetFlow.flow_json);
+    if (!targetNode) {
+      throw new Error("Target flow has no runnable entry node.");
+    }
+
+    await query(
+      `UPDATE conversations
+       SET flow_id = $1,
+           current_node = $2,
+           status = 'active',
+           retry_count = 0,
+           context_json = COALESCE(context_json, '{}'::jsonb) || $3::jsonb,
+           updated_at = NOW()
+       WHERE id = $4`,
+      [
+        targetFlow.id,
+        targetNode.id,
+        buildHandoffContextPatch({
+          handoffType: "flow",
+          fromBotId: input.currentBotId,
+          fromFlowId: input.currentFlowId,
+          toBotId: input.currentBotId,
+          toFlowId: targetFlow.id,
+          gotoNodeId: input.currentNodeId,
+        }),
+        input.conversationId,
+      ]
+    );
+
+    return {
+      botId: input.currentBotId,
+      flowId: targetFlow.id,
+      targetNode,
+      nodes: Array.isArray(targetFlow.flow_json?.nodes) ? targetFlow.flow_json.nodes : [],
+      edges: Array.isArray(targetFlow.flow_json?.edges) ? targetFlow.flow_json.edges : [],
+    };
+  }
+
+  if (gotoType === "bot") {
+    const targetBotId = String(input.gotoData?.targetBotId || "").trim();
+    if (!targetBotId) {
+      throw new Error("Target bot is required for Go To bot handoff.");
+    }
+
+    const currentBot = await findBotById(input.currentBotId);
+    const targetBot = await findBotById(targetBotId);
+    if (!currentBot || !targetBot) {
+      throw new Error("Go To bot target could not be found.");
+    }
+    if (String(currentBot.workspace_id || "") !== String(targetBot.workspace_id || "")) {
+      throw new Error("Inter-bot handoff must stay inside the same workspace.");
+    }
+    if (String(targetBot.status || "").trim().toLowerCase() !== "active") {
+      throw new Error("Target bot must be active before using Go To bot.");
+    }
+
+    const contact = await upsertContactWithIdentity({
+      botId: targetBot.id,
+      workspaceId: targetBot.workspace_id,
+      platform: input.normalizedChannel,
+      platformUserId: input.platformUserId,
+      name: conversation.contact_name || null,
+      email: conversation.contact_email || null,
+      phone: conversation.contact_phone || input.platformUserId,
+    });
+
+    const resolvedContext = await resolveCampaignContext(
+      targetBot.id,
+      input.normalizedChannel,
+      null
+    );
+
+    const targetFlows = await loadEligibleFlows(
+      targetBot.id,
+      resolvedContext.projectId || targetBot.project_id || null
+    );
+    const targetFlow = selectTransferFlow(targetFlows, input.gotoData?.targetFlowId || null);
+    if (!targetFlow) {
+      throw new Error("Target bot has no active flows available.");
+    }
+
+    const targetNode = resolveFlowEntryNode(targetFlow.flow_json);
+    if (!targetNode) {
+      throw new Error("Target bot flow has no runnable entry node.");
+    }
+
+    await query(
+      `UPDATE conversations
+       SET bot_id = $1,
+           workspace_id = COALESCE($2, workspace_id),
+           project_id = COALESCE($3, project_id),
+           contact_id = $4,
+           campaign_id = $5,
+           channel_id = $6,
+           entry_point_id = $7,
+           flow_id = $8,
+           list_id = $9,
+           platform = COALESCE($10, platform),
+           platform_account_id = COALESCE($11, platform_account_id),
+           current_node = $12,
+           status = 'active',
+           retry_count = 0,
+           context_json = COALESCE(context_json, '{}'::jsonb) || $13::jsonb,
+           updated_at = NOW()
+       WHERE id = $14`,
+      [
+        targetBot.id,
+        targetBot.workspace_id || resolvedContext.workspaceId || null,
+        resolvedContext.projectId || targetBot.project_id || null,
+        contact.id,
+        resolvedContext.campaignId,
+        resolvedContext.channelId,
+        resolvedContext.entryPointId,
+        targetFlow.id,
+        resolvedContext.listId,
+        resolvedContext.platform || input.normalizedChannel,
+        resolvedContext.platformAccountId,
+        targetNode.id,
+        buildHandoffContextPatch({
+          handoffType: "bot",
+          fromBotId: input.currentBotId,
+          fromFlowId: input.currentFlowId,
+          toBotId: targetBot.id,
+          toFlowId: targetFlow.id,
+          gotoNodeId: input.currentNodeId,
+        }),
+        input.conversationId,
+      ]
+    );
+
+    await applyConversationWorkspacePolicies(input.conversationId);
+    await closePlatformUserRunnableConversations(
+      input.conversationId,
+      input.platformUserId,
+      input.normalizedChannel
+    );
+
+    return {
+      botId: targetBot.id,
+      flowId: targetFlow.id,
+      targetNode,
+      nodes: Array.isArray(targetFlow.flow_json?.nodes) ? targetFlow.flow_json.nodes : [],
+      edges: Array.isArray(targetFlow.flow_json?.edges) ? targetFlow.flow_json.edges : [],
+    };
+  }
+
+  throw new Error(`Unsupported Go To handoff type '${gotoType}'.`);
+};
+
 const findGlobalErrorNodeInFlow = (flowJson: any) => {
   const nodes = Array.isArray(flowJson?.nodes) ? flowJson.nodes : [];
   return (
@@ -898,18 +1117,21 @@ export const executeFlowFromNode = async (
 
   try {
     let currentNode = startNode;
+    let activeBotId = botId;
+    let activeNodes = nodes;
+    let activeEdges = edges;
     let loop = 0;
     let endedByInputWait = false;
     let endedByTerminalNode = false;
 
     const conversationRes = await query(
-      "SELECT variables, workspace_id, project_id FROM conversations WHERE id = $1",
+      "SELECT variables, workspace_id, project_id, flow_id FROM conversations WHERE id = $1",
       [conversationId]
     );
 
     let variables = parseVariables(conversationRes.rows[0]?.variables);
-    const conversationWorkspaceId = String(conversationRes.rows[0]?.workspace_id || "").trim() || null;
-    const conversationProjectId = String(conversationRes.rows[0]?.project_id || "").trim() || null;
+    let conversationWorkspaceId = String(conversationRes.rows[0]?.workspace_id || "").trim() || null;
+    let conversationProjectId = String(conversationRes.rows[0]?.project_id || "").trim() || null;
 
     while (currentNode && loop < 25) {
       loop++;
@@ -929,7 +1151,7 @@ export const executeFlowFromNode = async (
         if (io) {
           io.emit("dashboard_update", {
             conversationId,
-            botId,
+            botId: activeBotId,
             channel: normalizedChannel,
             platformUserId,
             text: data.text || "User routed to human agent via flow.",
@@ -945,7 +1167,7 @@ export const executeFlowFromNode = async (
           text: data.text || "Bot paused. An agent will be with you shortly.",
         };
 
-        clearUserTimers(botId, platformUserId);
+        clearUserTimers(activeBotId, platformUserId);
       } else if (currentNodeType === "resume_bot") {
         await query(
           "UPDATE conversations SET status = 'active' WHERE id = $1",
@@ -958,7 +1180,7 @@ export const executeFlowFromNode = async (
           text: data.text || "Automation resumed.",
         };
 
-        clearUserTimers(botId, platformUserId);
+        clearUserTimers(activeBotId, platformUserId);
       } else if (
         currentNodeType === "msg_text" ||
         currentNodeType === "input"
@@ -1048,7 +1270,7 @@ export const executeFlowFromNode = async (
           [conversationId]
         );
         await cancelPendingJobsByConversation(conversationId, FLOW_WAIT_JOB_TYPES);
-        clearUserTimers(botId, platformUserId);
+        clearUserTimers(activeBotId, platformUserId);
         await closePlatformUserRunnableConversations(
           conversationId,
           platformUserId,
@@ -1076,7 +1298,7 @@ export const executeFlowFromNode = async (
         );
 
         await cancelPendingJobsByConversation(conversationId, FLOW_WAIT_JOB_TYPES);
-        clearUserTimers(botId, platformUserId);
+        clearUserTimers(activeBotId, platformUserId);
         await closePlatformUserRunnableConversations(
           conversationId,
           platformUserId,
@@ -1188,7 +1410,7 @@ export const executeFlowFromNode = async (
         try {
           await upsertLeadCapture({
             conversationId,
-            botId,
+            botId: activeBotId,
             platform: normalizePlatform(channel),
             variables,
             nodeData: {
@@ -1224,19 +1446,42 @@ export const executeFlowFromNode = async (
         }
       } else if (currentNodeType === "goto") {
         const gotoType = String(data.gotoType || "").trim().toLowerCase();
-        if (gotoType === "bot" && data.targetBotId) {
-          console.warn(
-            `[FlowEngine] goto node ${currentNode.id} targets external bot ${data.targetBotId}, which is not wired for runtime transfer yet`
-          );
-          currentNode = findNextNode(currentNode.id, nodes, edges, ["next", "response"]);
+        if (gotoType === "flow" || gotoType === "bot") {
+          const handoff = await performGotoHandoff({
+            conversationId,
+            currentBotId: activeBotId,
+            currentFlowId: conversationRes.rows[0]?.flow_id || null,
+            currentNodeId: String(currentNode.id),
+            gotoData: data,
+            normalizedChannel,
+            platformUserId,
+          });
+          activeBotId = handoff.botId;
+          activeNodes = handoff.nodes;
+          activeEdges = handoff.edges;
+          currentNode = handoff.targetNode;
+          conversationRes.rows[0] = {
+            ...(conversationRes.rows[0] || {}),
+            flow_id: handoff.flowId || null,
+          };
+          if (gotoType === "bot") {
+            const refreshedConversationRes = await query(
+              "SELECT workspace_id, project_id FROM conversations WHERE id = $1",
+              [conversationId]
+            );
+            conversationWorkspaceId =
+              String(refreshedConversationRes.rows[0]?.workspace_id || "").trim() || null;
+            conversationProjectId =
+              String(refreshedConversationRes.rows[0]?.project_id || "").trim() || null;
+          }
         } else {
           const targetNodeId = String(data.targetNode || data.targetNodeId || "").trim();
-          currentNode = nodes.find((node: any) => String(node.id) === targetNodeId);
+          currentNode = activeNodes.find((node: any) => String(node.id) === targetNodeId);
         }
 
         await query(
-          "UPDATE conversations SET current_node = $1 WHERE id = $2",
-          [currentNode?.id || null, conversationId]
+          "UPDATE conversations SET current_node = $1, flow_id = COALESCE($2, flow_id) WHERE id = $3",
+          [currentNode?.id || null, conversationRes.rows[0]?.flow_id || null, conversationId]
         );
         continue;
       } else if (currentNodeType === "condition") {
@@ -1256,13 +1501,13 @@ export const executeFlowFromNode = async (
         }
 
         const matchedHandle = isTrue ? "true" : "false";
-        const edge = edges.find(
+        const edge = activeEdges.find(
           (candidate: any) =>
             String(candidate.source) === String(currentNode.id) &&
             String(candidate.sourceHandle) === matchedHandle
         );
 
-        currentNode = nodes.find(
+        currentNode = activeNodes.find(
           (node: any) => String(node.id) === String(edge?.target)
         );
 
@@ -1286,7 +1531,7 @@ export const executeFlowFromNode = async (
       if (isInputNode(currentNodeType)) {
         await scheduleWaitingNodeInactivity({
           conversationId,
-          botId,
+          botId: activeBotId,
           platformUserId,
           waitingNodeId: String(currentNode.id),
           channel,
@@ -1300,18 +1545,18 @@ export const executeFlowFromNode = async (
         break;
       }
 
-      currentNode = findNextNode(currentNode.id, nodes, edges, nextHandles);
+      currentNode = findNextNode(currentNode.id, activeNodes, activeEdges, nextHandles);
     }
 
     if (!endedByInputWait && !endedByTerminalNode) {
-      const hasExplicitLeadForm = nodes.some(
+      const hasExplicitLeadForm = activeNodes.some(
         (node: any) => normalizeRuntimeNodeType(node.type) === "lead_form"
       );
       if (!hasExplicitLeadForm) {
         try {
           await maybeAutoCaptureLead({
             conversationId,
-            botId,
+            botId: activeBotId,
             platform: normalizedChannel,
             variables,
             sourcePayload: {

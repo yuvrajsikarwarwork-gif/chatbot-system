@@ -9,6 +9,10 @@ import cron from "node-cron";
 import "dotenv/config";
 
 import { startFlowWaitQueueProcessor } from "./services/flowWaitQueueService";
+import {
+  processWorkspaceExportJobsService,
+  purgeSoftDeletedWorkspacesService,
+} from "./services/workspaceService";
 import { initializeWebConnector } from "./connectors/website/websiteAdapter";
 
 async function start() {
@@ -55,6 +59,28 @@ async function start() {
         }
       } catch (err) {
         console.error(err);
+      }
+    });
+
+    cron.schedule("0 2 * * *", async () => {
+      try {
+        const result = await purgeSoftDeletedWorkspacesService();
+        if (result.purged > 0) {
+          console.log("Purged soft-deleted workspaces", result.purged);
+        }
+      } catch (err) {
+        console.error("Soft-delete purge failed", err);
+      }
+    });
+
+    cron.schedule("*/5 * * * *", async () => {
+      try {
+        const result = await processWorkspaceExportJobsService();
+        if (result.processed > 0) {
+          console.log("Processed workspace export jobs", result.processed);
+        }
+      } catch (err) {
+        console.error("Workspace export processing failed", err);
       }
     });
 

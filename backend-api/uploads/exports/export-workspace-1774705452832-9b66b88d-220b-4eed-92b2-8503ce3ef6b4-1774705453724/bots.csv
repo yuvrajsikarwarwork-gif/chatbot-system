@@ -1,0 +1,2 @@
+id,user_id,name,status,flow_json,created_at,wa_phone_number_id,wa_access_token,wa_verify_token,trigger_keywords,updated_at,settings,workspace_id,project_id,deleted_at
+4dfedb21-327d-46cc-bbde-d735479d8fa6,a5b44a33-9c6f-45be-a0c4-380a0ca17395,Export Bot 1774705452832,inactive,"{""edges"":[],""nodes"":[]}","""2026-03-28T13:44:12.968Z""",,,,,"""2026-03-28T13:44:12.968Z""",{},9b66b88d-220b-4eed-92b2-8503ce3ef6b4,7069366f-1d1f-40e5-94f5-478d5cb6adb3,

@@ -39,6 +39,7 @@ export const WORKSPACE_PERMISSIONS = {
   manageWorkspace: "manage_workspace",
   manageUsers: "manage_users",
   managePermissions: "manage_permissions",
+  useAiNodes: "use_ai_nodes",
   viewProjects: "view_projects",
   createProjects: "create_projects",
   editProjects: "edit_projects",
@@ -87,6 +88,7 @@ const ROLE_PERMISSIONS: Record<string, WorkspacePermission[]> = {
     WORKSPACE_PERMISSIONS.manageWorkspace,
     WORKSPACE_PERMISSIONS.manageUsers,
     WORKSPACE_PERMISSIONS.managePermissions,
+    WORKSPACE_PERMISSIONS.useAiNodes,
     WORKSPACE_PERMISSIONS.viewProjects,
     WORKSPACE_PERMISSIONS.createProjects,
     WORKSPACE_PERMISSIONS.editProjects,
@@ -113,6 +115,7 @@ const ROLE_PERMISSIONS: Record<string, WorkspacePermission[]> = {
   ],
   editor: [
     WORKSPACE_PERMISSIONS.viewWorkspace,
+    WORKSPACE_PERMISSIONS.useAiNodes,
     WORKSPACE_PERMISSIONS.viewProjects,
     WORKSPACE_PERMISSIONS.viewCampaigns,
     WORKSPACE_PERMISSIONS.createCampaign,
