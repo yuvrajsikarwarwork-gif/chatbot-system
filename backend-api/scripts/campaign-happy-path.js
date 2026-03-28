@@ -201,12 +201,13 @@ async function main() {
         email: "smoke@example.com",
       },
       nodeData: {
-        nodeId: "lead-form-smoke",
+        nodeId: "linked-input-capture-smoke",
         statusValue: "captured",
-        sourceLabel: "lead_form",
+        sourceLabel: "linked_form_capture",
       },
       sourcePayload: {
         smokeRun: true,
+        linkedFieldKey: "email",
       },
     });
 

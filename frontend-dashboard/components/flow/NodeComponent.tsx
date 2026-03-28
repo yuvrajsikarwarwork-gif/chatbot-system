@@ -3,18 +3,35 @@ import { X, Hash, Headset, Bot, RotateCcw, Link } from "lucide-react";
 
 export default function NodeComponent({ id, data, type, selected }: any) {
   const { setNodes, setEdges } = useReactFlow();
+  const handleSize = 18;
+  const handleOffset = -9;
+  const handleClassName = "border-2 border-card rounded-full";
+  const sideHandleClassName = `${handleClassName} absolute top-1/2 -translate-y-1/2`;
+  const baseHandleStyle = {
+    width: handleSize,
+    height: handleSize,
+    borderWidth: 2,
+    borderRadius: 9999,
+  } as const;
+  const sideHandleStyle = {
+    ...baseHandleStyle,
+    right: handleOffset,
+    top: "50%",
+    transform: "translateY(-50%)",
+  } as const;
 
-  // Type categorizations
-  const isButtonNode = type === "menu_button";  const isListNode = type === "menu_list";
+  const isButtonNode = type === "menu_button";
+  const isListNode = type === "menu_list";
   const isConditionNode = type === "condition";
-  const isEndNode = type === "end" || type === "timeout"; 
+  const isEndNode = type === "end" || type === "timeout";
   const isGotoNode = type === "goto";
   const isAgentNode = type === "assign_agent";
   const isResumeNode = type === "resume_bot";
   const isInputNode = type === "input";
+  const isApiNode = type === "api";
   const isWaitingNode = isInputNode || isButtonNode || isListNode;
   const isErrorHandler = type === "error_handler";
-  const isStartNode = type === "start" || type === "trigger"; 
+  const isStartNode = type === "start" || type === "trigger";
   const isGlobalOverride = type === "trigger" && Boolean(data?.isGlobalOverride);
 
   const maxItems = isButtonNode ? 4 : isListNode ? 10 : 0;
@@ -26,155 +43,262 @@ export default function NodeComponent({ id, data, type, selected }: any) {
   };
 
   return (
-    <div 
-      className={`bg-white border-2 rounded-xl min-w-[220px] overflow-hidden relative group transition-all hover:border-blue-400 hover:shadow-md ${
-        selected 
-          ? "border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.4)] ring-2 ring-blue-100 scale-[1.02]" 
-          : "border-slate-200 shadow-sm"
+    <div
+      className={`bg-card rounded-xl min-w-[220px] overflow-hidden relative group transition-all border ${
+        selected
+          ? "border-primary shadow-[0_0_15px_var(--primary-fade)] scale-[1.02]"
+          : "border-border shadow-sm hover:border-primary/50"
       } ${isErrorHandler ? "border-dashed" : "border-solid"}`}
     >
-      
-      <button 
+      <button
         onClick={handleDelete}
-        className="absolute top-2 right-2 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity z-10 bg-white rounded-full p-0.5"
+        className="absolute top-2 right-2 text-muted hover:text-primary opacity-0 group-hover:opacity-100 transition-opacity z-10 bg-card rounded-full p-0.5"
       >
         <X size={14} strokeWidth={3} />
       </button>
 
-      {/* Target Handle - Hidden on Start, Trigger, and Global Error Handler */}
       {!isStartNode && !isErrorHandler && (
-        <Handle type="target" position={Position.Left} className="w-3 h-3 bg-slate-400 border-2 border-white" />
+        <Handle
+          type="target"
+          position={Position.Left}
+          className={handleClassName}
+          style={{ ...baseHandleStyle, background: "var(--muted)", left: handleOffset }}
+        />
       )}
 
-      {/* Node Header */}
-      <div className={`p-2.5 border-b flex items-center justify-between pr-8 ${isErrorHandler ? "bg-amber-50 border-amber-100" : "bg-slate-50 border-slate-100"}`}>
+      <div
+        className={`p-2.5 border-b flex items-center justify-between pr-8 ${
+          isErrorHandler ? "bg-primary-fade border-primary/20" : "bg-background border-border"
+        }`}
+      >
         <div className="flex min-w-0 items-center gap-2">
-          <span className={`text-[10px] font-black uppercase tracking-widest truncate ${isErrorHandler ? "text-amber-600" : "text-slate-600"}`}>
-            {data.label || type.replace('_', ' ')}
+          <span
+            className={`text-[10px] font-black uppercase tracking-widest truncate ${
+              isErrorHandler ? "text-primary" : "text-muted"
+            }`}
+          >
+            {data.label || type.replace("_", " ")}
           </span>
           {isGlobalOverride ? (
-            <span className="rounded-full bg-red-100 px-2 py-0.5 text-[8px] font-black uppercase tracking-[0.18em] text-red-700">
+            <span className="rounded-full bg-primary-fade px-2 py-0.5 text-[8px] font-black uppercase tracking-[0.18em] text-primary">
               Global
             </span>
           ) : null}
         </div>
-        
-        <div className="flex items-center gap-1 bg-slate-200 px-1.5 py-0.5 rounded text-[8px] font-mono text-slate-500 border border-slate-300">
+
+        <div className="flex items-center gap-1 bg-card px-1.5 py-0.5 rounded text-[8px] font-mono text-muted border border-border">
           <Hash size={8} />
-          {id.slice(-4)} 
+          {id.slice(-4)}
         </div>
       </div>
 
-      {/* Node Body Preview */}
-      <div className="p-3 text-xs text-slate-600 font-medium">
+      <div className="p-3 text-xs text-muted font-medium">
         {isInputNode ? (
           <div className="space-y-2">
             <p className="truncate max-w-[180px]">{data.text || "Configure question..."}</p>
-            <div className="flex items-center gap-1 text-[9px] text-slate-400 italic font-bold">
-              <RotateCcw size={10} className="text-slate-300" /> Type 'reset' to rewrite
+            <div className="flex items-center gap-1 text-[9px] italic font-bold">
+              <RotateCcw size={10} className="text-muted" /> Type 'reset' to rewrite
             </div>
           </div>
         ) : isGotoNode ? (
           <div className="space-y-1">
-            <div className="flex items-center gap-1 text-[9px] text-blue-500 font-black uppercase tracking-tight">
-              <Link size={10} /> {data.gotoType === 'bot' ? 'Other Bot' : data.gotoType === 'flow' ? 'Bot Flow' : 'Internal Node'}
+            <div className="flex items-center gap-1 text-[9px] text-primary font-black uppercase tracking-tight">
+              <Link size={10} />{" "}
+              {data.gotoType === "bot"
+                ? "Other Bot"
+                : data.gotoType === "flow"
+                  ? "Bot Flow"
+                  : "Internal Node"}
             </div>
-            <p className={`truncate font-bold bg-slate-50 p-1 rounded border ${!data.targetNode && !data.targetBotId ? "text-red-400 border-red-100 animate-pulse" : "text-slate-900 border-slate-100"}`}>
-              {data.gotoType === 'flow'
+            <p
+              className={`truncate font-bold bg-background p-1 rounded border ${
+                !data.targetNode && !data.targetBotId
+                  ? "text-primary border-primary/30 animate-pulse"
+                  : "text-foreground border-border"
+              }`}
+            >
+              {data.gotoType === "flow"
                 ? data.targetFlowId || "Unconfigured"
                 : data.targetNode || data.targetBotId || "Unconfigured"}
             </p>
           </div>
         ) : isAgentNode ? (
-          <div className="flex items-center gap-2 text-amber-600">
+          <div className="flex items-center gap-2 text-primary">
             <Headset size={14} />
             <span className="text-[10px] font-bold uppercase">Handoff to Human</span>
           </div>
+        ) : isApiNode ? (
+          <div className="space-y-1">
+            <div className="text-[9px] font-black uppercase tracking-wide text-primary">
+              {String(data.method || "GET").toUpperCase()}
+            </div>
+            <p className="truncate font-mono text-[10px] text-foreground">
+              {data.url || "https://api.example.com"}
+            </p>
+            <p className="text-[9px] text-muted">Save to: {data.saveTo || "api_response"}</p>
+          </div>
         ) : isResumeNode ? (
-          <div className="flex items-center gap-2 text-emerald-600">
+          <div className="flex items-center gap-2 text-primary">
             <Bot size={14} />
             <span className="text-[10px] font-bold uppercase">Resume automation</span>
           </div>
         ) : isErrorHandler ? (
-          <p className="italic text-amber-500 text-[10px]">Active globally for all errors</p>
+          <p className="italic text-primary text-[10px]">Active globally for all errors</p>
         ) : data.text ? (
           <div className="space-y-1">
-            <p className="truncate max-w-[180px]">{data.text}</p>
+            <p className="truncate max-w-[180px] text-foreground">{data.text}</p>
             {Number(data.delayMs || 0) > 0 ? (
-              <p className="text-[9px] font-bold uppercase tracking-wide text-slate-400">
+              <p className="text-[9px] font-bold uppercase tracking-wide text-muted">
                 Delay {Number(data.delayMs)} ms
               </p>
             ) : null}
           </div>
         ) : (
-          <p className="italic text-slate-400">Configure node...</p>
+          <p className="italic text-muted">Configure node...</p>
         )}
       </div>
 
-      {/* Menus / Lists */}
       {maxItems > 0 && (
-        <div className="border-t border-slate-100 bg-slate-50 flex flex-col">
+        <div className="border-t border-border bg-background flex flex-col">
           {Array.from({ length: maxItems }, (_, i) => i + 1).map((num) => {
             const itemText = data[`item${num}`];
             if (!itemText && num > 1) return null;
             return (
-              <div key={num} className="relative p-2 text-[10px] font-bold text-center border-b border-slate-200 last:border-0 text-slate-600">
+              <div
+                key={num}
+                className="relative p-2 text-[10px] font-bold text-center border-b border-border last:border-0 text-muted"
+              >
                 <span className="truncate block px-2">{itemText || `Item ${num}`}</span>
-                <Handle type="source" position={Position.Right} id={`item${num}`} className="w-3 h-3 bg-purple-500 border-2 border-white absolute right-[-7px] top-1/2 -translate-y-1/2" />
+                <Handle
+                  type="source"
+                  position={Position.Right}
+                  id={`item${num}`}
+                  className={sideHandleClassName}
+                  style={{ ...sideHandleStyle, background: "var(--primary)" }}
+                />
               </div>
             );
           })}
         </div>
       )}
 
-      {/* Resume Bot Handles */}
       {isResumeNode && (
-        <div className="border-t border-slate-100 bg-slate-50 flex flex-col">
-          <div className="relative p-2 text-[10px] font-bold text-center border-b border-slate-200 text-emerald-600">
+        <div className="border-t border-border bg-background flex flex-col">
+          <div className="relative p-2 text-[10px] font-bold text-center border-b border-border text-primary">
             <span>Continue Last Interaction</span>
-            <Handle type="source" position={Position.Right} id="continue" className="w-3 h-3 bg-emerald-500 border-2 border-white absolute right-[-7px] top-1/2 -translate-y-1/2" />
+            <Handle
+              type="source"
+              position={Position.Right}
+              id="continue"
+              className={sideHandleClassName}
+              style={{ ...sideHandleStyle, background: "var(--primary)" }}
+            />
           </div>
-          <div className="relative p-2 text-[10px] font-bold text-center text-blue-600">
+          <div className="relative p-2 text-[10px] font-bold text-center text-foreground">
             <span>Restart Flow</span>
-            <Handle type="source" position={Position.Right} id="restart" className="w-3 h-3 bg-blue-500 border-2 border-white absolute right-[-7px] top-1/2 -translate-y-1/2" />
+            <Handle
+              type="source"
+              position={Position.Right}
+              id="restart"
+              className={sideHandleClassName}
+              style={{ ...sideHandleStyle, background: "var(--foreground)" }}
+            />
           </div>
         </div>
       )}
 
-      {/* Condition Nodes */}
       {isConditionNode && (
-        <div className="border-t border-slate-100 bg-slate-50 flex flex-col">
-          <div className="relative p-2 text-[10px] font-bold text-center border-b border-slate-200 text-emerald-600">
+        <div className="border-t border-border bg-background flex flex-col">
+          <div className="relative p-2 text-[10px] font-bold text-center border-b border-border text-primary">
             <span>True</span>
-            <Handle type="source" position={Position.Right} id="true" className="w-3 h-3 bg-emerald-500 border-2 border-white absolute right-[-7px] top-1/2 -translate-y-1/2" />
+            <Handle
+              type="source"
+              position={Position.Right}
+              id="true"
+              className={sideHandleClassName}
+              style={{ ...sideHandleStyle, background: "var(--primary)" }}
+            />
           </div>
-          <div className="relative p-2 text-[10px] font-bold text-center text-red-600">
+          <div className="relative p-2 text-[10px] font-bold text-center text-muted">
             <span>False</span>
-            <Handle type="source" position={Position.Right} id="false" className="w-3 h-3 bg-red-500 border-2 border-white absolute right-[-7px] top-1/2 -translate-y-1/2" />
+            <Handle
+              type="source"
+              position={Position.Right}
+              id="false"
+              className={sideHandleClassName}
+              style={{ ...sideHandleStyle, background: "var(--muted)" }}
+            />
           </div>
         </div>
       )}
 
-      {/* Input Node Handles */}
+      {isApiNode && (
+        <div className="border-t border-border bg-background flex flex-col">
+          <div className="relative p-2 text-[10px] font-bold text-center border-b border-border text-primary">
+            <span>On Success</span>
+            <Handle
+              type="source"
+              position={Position.Right}
+              id="success"
+              className={sideHandleClassName}
+              style={{ ...sideHandleStyle, background: "var(--primary)" }}
+            />
+          </div>
+          <div className="relative p-2 text-[10px] font-bold text-center text-muted">
+            <span>On Error</span>
+            <Handle
+              type="source"
+              position={Position.Right}
+              id="error"
+              className={sideHandleClassName}
+              style={{ ...sideHandleStyle, background: "var(--muted)" }}
+            />
+          </div>
+        </div>
+      )}
+
       {isWaitingNode && (
-        <div className="border-t border-slate-100 bg-slate-50 flex flex-col">
+        <div className="border-t border-border bg-background flex flex-col">
           {isInputNode && (
-            <div className="relative p-2 text-[10px] font-bold text-center border-b border-slate-200 text-blue-600">
+            <div className="relative p-2 text-[10px] font-bold text-center border-b border-border text-primary">
               <span>On Response</span>
-              <Handle type="source" position={Position.Right} id="response" className="w-3 h-3 bg-blue-500 border-2 border-white absolute right-[-7px] top-1/2 -translate-y-1/2" />
+              <Handle
+                type="source"
+                position={Position.Right}
+                id="response"
+                className={sideHandleClassName}
+                style={{ ...sideHandleStyle, background: "var(--primary)" }}
+              />
             </div>
           )}
-          <div className="relative p-2 text-[10px] font-bold text-center text-amber-600">
-            <span>On Timeout (Amber Handle)</span>
-            <Handle type="source" position={Position.Right} id="timeout" className="w-3 h-3 bg-amber-500 border-2 border-white absolute right-[-7px] top-1/2 -translate-y-1/2" />
+          <div className="relative p-2 text-[10px] font-bold text-center text-muted">
+            <span>On Timeout</span>
+            <Handle
+              type="source"
+              position={Position.Right}
+              id="timeout"
+              className={sideHandleClassName}
+              style={{ ...sideHandleStyle, background: "var(--muted)" }}
+            />
           </div>
         </div>
       )}
 
-      {/* Default Handle */}
-      {!isEndNode && !isGotoNode && !isInputNode && !isConditionNode && !isResumeNode && !isErrorHandler && maxItems === 0 && (
-        <Handle type="source" position={Position.Right} className="w-3 h-3 bg-blue-500 border-2 border-white" />
-      )}
+      {!isEndNode &&
+      !isGotoNode &&
+      !isInputNode &&
+      !isConditionNode &&
+      !isResumeNode &&
+      !isErrorHandler &&
+      !isApiNode &&
+      maxItems === 0 ? (
+        <Handle
+          type="source"
+          position={Position.Right}
+          className={handleClassName}
+          style={{ ...baseHandleStyle, background: "var(--primary)", right: handleOffset }}
+        />
+      ) : null}
     </div>
   );
 }

@@ -53,7 +53,9 @@ export const processMessage = async (req: Request, res: Response) => {
     }
 
     // 2. Execute the Flow Logic
-    const replies = await executeFlow(ctx.flow, state);
+    const replies = await executeFlow(ctx.flow, state, {
+      platform: ctx.conversation?.platform || ctx.conversation?.channel || null,
+    });
 
     // 3. Persist the updated state (variables, node_id, waiting flags)
     await saveState(state);

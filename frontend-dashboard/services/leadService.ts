@@ -8,6 +8,7 @@ export interface LeadFilters {
   entryPointId?: string;
   flowId?: string;
   listId?: string;
+  leadFormId?: string;
   platform?: string;
   status?: string;
   botId?: string;

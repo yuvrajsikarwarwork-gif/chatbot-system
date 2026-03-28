@@ -281,7 +281,7 @@ export default function MessageList({ messages }: MessageListProps) {
 
   if (!messages || messages.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center px-6 text-center text-sm font-bold text-slate-400">
+      <div className="flex h-full items-center justify-center px-6 text-center text-sm font-bold text-muted">
         No messages in this conversation yet.
       </div>
     );
@@ -292,7 +292,7 @@ export default function MessageList({ messages }: MessageListProps) {
       ref={containerRef}
       className="absolute inset-0 flex flex-col gap-4 overflow-y-auto p-5 custom-scrollbar md:p-6"
     >
-      <div className="mb-2 text-center text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">
+      <div className="mb-2 text-center text-[10px] font-black uppercase tracking-[0.22em] text-muted">
         Conversation Started
       </div>
 
@@ -325,10 +325,10 @@ export default function MessageList({ messages }: MessageListProps) {
               <div
                 className={`rounded-2xl p-3 text-sm shadow-sm ${
                   isAgent
-                    ? "rounded-br-none bg-blue-600 text-white"
+                    ? "rounded-br-none bg-primary text-white"
                     : isBot
-                      ? "rounded-br-none bg-slate-800 text-white"
-                      : "rounded-bl-none border border-slate-200 bg-white text-slate-800"
+                      ? "rounded-br-none bg-primary text-white"
+                      : "rounded-bl-none border border-border bg-card text-foreground"
                 }`}
               >
                 {renderMessageContent(message)}
@@ -336,7 +336,7 @@ export default function MessageList({ messages }: MessageListProps) {
               </div>
               <div
                 className={`mt-1 flex flex-wrap gap-x-2 gap-y-1 break-all text-[9px] font-bold uppercase tracking-[0.22em] opacity-70 ${
-                  isSystem ? "justify-end text-slate-500" : "justify-start text-slate-500"
+                  isSystem ? "justify-end text-muted" : "justify-start text-muted"
                 }`}
               >
                 <span>{sender}</span>

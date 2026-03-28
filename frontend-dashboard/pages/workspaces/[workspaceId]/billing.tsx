@@ -22,7 +22,7 @@ export default function WorkspaceBillingPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  const canViewBillingPage = canViewPage("billing");
+  const canViewBillingPage = canViewPage("billing") || isPlatformOperator;
 
   const loadData = async () => {
     const id = String(workspaceId || "").trim();

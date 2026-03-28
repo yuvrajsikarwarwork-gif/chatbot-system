@@ -1,5 +1,6 @@
 import { query } from "../adapters/dbAdapter";
 import { logEvent } from "../services/analyticsService";
+import { triggerLeadCaptureAfterInput } from "../services/leadCaptureService";
 
 // Helper to inject {{variables}} into message text
 const replaceVariables = (text: string, variables: any) => {
@@ -9,7 +10,97 @@ const replaceVariables = (text: string, variables: any) => {
   });
 };
 
-export const executeFlow = async (flow: any, state: any) => {
+const findEdge = (edges: any[], currentNodeId: string, handle?: string | null) =>
+  edges.find(
+    (edge: any) =>
+      (String(edge.source) === String(currentNodeId) || String(edge.from) === String(currentNodeId)) &&
+      (handle
+        ? String(edge.sourceHandle || edge.label || "") === String(handle)
+        : !edge.sourceHandle || edge.sourceHandle === "response" || !edge.label)
+  );
+
+const parseJsonTemplate = (rawValue: any, variables: Record<string, any>) => {
+  const source = String(rawValue || "").trim();
+  if (!source) return null;
+
+  const templated = replaceVariables(source, variables);
+  return JSON.parse(templated);
+};
+
+const parseSuccessStatuses = (rawValue: any) => {
+  const source = String(rawValue || "").trim();
+  if (!source) return [200, 201, 202, 204];
+
+  return source
+    .split(",")
+    .map((value) => Number(String(value).trim()))
+    .filter((value) => Number.isFinite(value));
+};
+
+const executeApiNode = async (node: any, vars: Record<string, any>) => {
+  const method = String(node.data?.method || "GET").trim().toUpperCase();
+  const saveTo = String(node.data?.saveTo || "api_response").trim();
+  const statusSaveTo = String(node.data?.statusSaveTo || `${saveTo}_status`).trim();
+  const timeoutMs = Number(node.data?.timeoutMs || 0);
+  const successStatuses = parseSuccessStatuses(node.data?.successStatuses);
+  const url = replaceVariables(String(node.data?.url || "").trim(), vars);
+
+  if (!url) {
+    throw new Error("API node URL is missing");
+  }
+
+  const headers = parseJsonTemplate(node.data?.headers, vars) || {};
+  const bodyValue = parseJsonTemplate(node.data?.body, vars);
+  const controller =
+    timeoutMs > 0 && typeof AbortController !== "undefined" ? new AbortController() : null;
+  const timeoutId =
+    controller && timeoutMs > 0
+      ? setTimeout(() => controller.abort(), timeoutMs)
+      : null;
+
+  try {
+    const response = await fetch(url, {
+      method,
+      headers,
+      body:
+        bodyValue !== null && !["GET", "HEAD"].includes(method)
+          ? JSON.stringify(bodyValue)
+          : undefined,
+      signal: controller?.signal,
+    });
+
+    const contentType = String(response.headers.get("content-type") || "").toLowerCase();
+    const responseData = contentType.includes("application/json")
+      ? await response.json()
+      : await response.text();
+
+    vars[saveTo] = responseData;
+    vars[statusSaveTo] = response.status;
+    vars[`${saveTo}_ok`] = response.ok;
+    delete vars[`${saveTo}_error`];
+
+    return {
+      matchedHandle: successStatuses.includes(response.status) ? "success" : "error",
+      status: response.status,
+    };
+  } catch (error: any) {
+    vars[saveTo] = null;
+    vars[statusSaveTo] = 0;
+    vars[`${saveTo}_ok`] = false;
+    vars[`${saveTo}_error`] = String(error?.message || error || "Request failed");
+
+    return {
+      matchedHandle: "error",
+      status: 0,
+    };
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
+};
+
+export const executeFlow = async (flow: any, state: any, runtimeContext?: { platform?: string | null }) => {
   if (!flow || !flow.flow_json) return [];
 
   const flowJson = typeof flow.flow_json === "string" ? JSON.parse(flow.flow_json) : flow.flow_json;
@@ -83,6 +174,15 @@ export const executeFlow = async (flow: any, state: any) => {
         // User replied, save the response
         const varName = state.input_variable || node.data.variable || "last_input";
         vars[varName] = state.last_user_message;
+        await triggerLeadCaptureAfterInput({
+          conversationId: state.conversation_id,
+          botId: flow.bot_id,
+          platform: runtimeContext?.platform || "whatsapp",
+          variables: vars,
+          capturedVariable: varName,
+          leadFormId: node.data?.linkedFormId || null,
+          linkedFieldKey: node.data?.linkedFieldKey || null,
+        });
         
         state.waiting_input = false;
         state.input_variable = null;
@@ -101,7 +201,16 @@ export const executeFlow = async (flow: any, state: any) => {
     if (node.type === "action" || node.type === "save") {
       const varName = node.data.variable;
       const val = node.data.value || node.data.leadField;
-      if (varName) vars[varName] = val;
+      if (varName) {
+        vars[varName] = val;
+        await triggerLeadCaptureAfterInput({
+          conversationId: state.conversation_id,
+          botId: flow.bot_id,
+          platform: runtimeContext?.platform || "whatsapp",
+          variables: vars,
+          capturedVariable: varName,
+        });
+      }
     }
 
     if (node.type === "condition") {
@@ -121,12 +230,31 @@ export const executeFlow = async (flow: any, state: any) => {
       const matchedHandle = result ? "true" : "false";
       
       // Support both React Flow (source/target) and custom (from/to) edge formats
-      const edge = edges.find((e: any) => 
-        (String(e.source) === String(currentNodeId) || String(e.from) === String(currentNodeId)) && 
-        (String(e.sourceHandle) === matchedHandle || String(e.label) === matchedHandle)
-      );
+      const edge = findEdge(edges, currentNodeId, matchedHandle);
 
       if (!edge) break;
+      currentNodeId = edge.target || edge.to;
+      steps++;
+      continue;
+    }
+
+    if (node.type === "api") {
+      const { matchedHandle, status } = await executeApiNode(node, vars);
+
+      await logEvent(state.conversation_id, flow.bot_id, "api_request", {
+        nodeId: node.id,
+        method: String(node.data?.method || "GET").toUpperCase(),
+        url: replaceVariables(String(node.data?.url || ""), vars),
+        status,
+        matchedHandle,
+      });
+
+      const edge = findEdge(edges, currentNodeId, matchedHandle) || findEdge(edges, currentNodeId);
+      if (!edge) {
+        state.current_node_id = null;
+        break;
+      }
+
       currentNodeId = edge.target || edge.to;
       steps++;
       continue;
@@ -157,10 +285,7 @@ export const executeFlow = async (flow: any, state: any) => {
 
     // ---------- STANDARD EDGE TRAVERSAL ----------
     // Find next node via default response handles
-    const edge = edges.find((e: any) => 
-      (String(e.source) === String(currentNodeId) || String(e.from) === String(currentNodeId)) && 
-      (!e.sourceHandle || e.sourceHandle === "response" || !e.label)
-    );
+    const edge = findEdge(edges, currentNodeId);
 
     if (!edge) {
       // Flow reached a dead end naturally

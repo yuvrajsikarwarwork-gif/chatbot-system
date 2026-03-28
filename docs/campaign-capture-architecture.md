@@ -7,8 +7,8 @@ Campaign
 -> Entry Point
 -> Flow
 -> Flow Nodes
--> Lead Form Node
--> Lead Save
+-> Linked Lead Form Field Mapping
+-> Incremental Lead Save
 -> Lead List / Source
 
 ## Database model
@@ -105,19 +105,22 @@ Campaign
 4. A conversation is created or updated with campaign context.
 5. Flow selection happens from `conversation.flow_id` rather than from campaign data stored inside the flow.
 6. Flow execution stays reusable across campaigns.
-7. A `lead_form` node captures and upserts a lead using:
+7. Input nodes can be linked to reusable Lead Forms and specific form fields.
+8. As the user answers each mapped input node, the runtime incrementally upserts the lead using:
    - conversation context
    - contact identity
-   - mapped variables like `name`, `phone`, `email`
-8. The lead lands in the correct campaign/platform/entry/list bucket.
+   - the linked form id
+   - the linked field key
+   - mapped variables like `name`, `phone`, `email`, `company_name`, or custom fields
+9. The lead lands in the correct campaign/platform/entry/list bucket.
 
 ## Lead save logic
 
-The `lead_form` node:
+The linked input-node capture flow:
 
-- Reads variable mappings like `nameVariable`, `phoneVariable`, and `emailVariable`
+- Reads the `linkedFormId` and `linkedFieldKey` stored on each input node
 - Pulls resolved context from the current conversation
-- Upserts a lead by contact + campaign + channel + entry point
+- Incrementally upserts a lead by conversation/contact + lead form context
 - Stores:
   - `campaign_id`
   - `channel_id`
@@ -125,13 +128,16 @@ The `lead_form` node:
   - `flow_id`
   - `platform`
   - `list_id`
+  - `lead_form_id`
   - `name`
   - `phone`
   - `email`
+  - `company_name`
   - `status`
   - `source`
   - `source_payload`
   - `variables`
+  - `custom_variables`
 
 ## SaaS scaling rules
 

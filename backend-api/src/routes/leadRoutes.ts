@@ -4,11 +4,14 @@ import { authMiddleware } from "../middleware/authMiddleware";
 import {
   deleteLeadCtrl,
   getLeadCtrl,
+  internalUpsertLeadCaptureCtrl,
   listLeadListsCtrl,
   listLeadsCtrl,
 } from "../controllers/leadController";
 
 const router = Router();
+
+router.post("/internal/capture", internalUpsertLeadCaptureCtrl);
 
 router.use(authMiddleware);
 

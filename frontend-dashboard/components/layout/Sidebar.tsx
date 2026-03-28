@@ -106,22 +106,22 @@ function SidebarLink({
   return (
     <Link
       href={path}
-      className={`group relative my-1 flex items-center gap-3 overflow-hidden rounded-2xl px-3 py-2.5 transition duration-300 ${
+      className={`group relative my-1 flex items-center gap-3 overflow-hidden rounded-2xl border px-3 py-2.5 transition duration-300 ${
         isActive
-          ? "bg-[var(--sidebar-active-bg)] text-white shadow-[0_14px_34px_rgba(79,70,229,0.22)]"
-          : "text-[var(--sidebar-text)] hover:-translate-y-0.5 hover:bg-[var(--sidebar-hover)] hover:text-white"
+          ? "border-primary/20 bg-primary-fade text-primary"
+          : "border-transparent text-muted hover:bg-background hover:text-foreground"
       }`}
     >
       <span
-        className={`absolute inset-y-2 left-0 w-1 rounded-full bg-gradient-to-b from-cyan-300 to-indigo-400 transition ${
+        className={`absolute inset-y-2 left-0 w-1 rounded-full bg-primary transition ${
           isActive ? "opacity-100" : "opacity-0 group-hover:opacity-70"
         }`}
       />
       <span
         className={`relative flex h-9 w-9 items-center justify-center rounded-xl border transition ${
           isActive
-            ? "border-[rgba(165,180,252,0.24)] bg-[rgba(255,255,255,0.1)] shadow-[0_0_0_1px_rgba(255,255,255,0.04),0_14px_28px_rgba(59,130,246,0.16)]"
-            : "border-transparent bg-transparent group-hover:border-[var(--sidebar-line)] group-hover:bg-[var(--sidebar-chip)]"
+            ? "border-primary/20 bg-primary-fade"
+            : "border-transparent bg-transparent group-hover:border-border group-hover:bg-card"
         }`}
       >
         <Icon />
@@ -133,7 +133,13 @@ function SidebarLink({
 
 export default function Sidebar() {
   const router = useRouter();
-  const { canSeeNav, isPlatformOperator, workspaceRole, isWorkspaceAdmin } = useVisibility();
+  const {
+    canSeeNav,
+    isPlatformOperator,
+    workspaceRole,
+    isWorkspaceAdmin,
+    activeProjectRole,
+  } = useVisibility();
   const activeWorkspace = useAuthStore((state) => state.activeWorkspace);
   const navRef = useRef<HTMLElement | null>(null);
   const workspaceBillingPath = activeWorkspace?.workspace_id
@@ -141,7 +147,11 @@ export default function Sidebar() {
     : "/settings";
   const isAgent = workspaceRole === "agent";
   const isEditor = workspaceRole === "editor";
-  const isViewer = workspaceRole === "viewer";
+  const canOpenLeadForms =
+    isWorkspaceAdmin ||
+    isEditor ||
+    activeProjectRole === "project_admin" ||
+    activeProjectRole === "editor";
   const workspaceMenu = [
     { label: "Dashboard", path: "/", Icon: Icons.Dashboard, section: "dashboard", visible: true },
     { label: "Projects", path: "/projects", Icon: Icons.Projects, section: "projects", visible: !isAgent },
@@ -152,6 +162,7 @@ export default function Sidebar() {
     { label: "Integrations", path: "/integrations", Icon: Icons.Platforms, section: "integrations", visible: !isAgent },
     { label: "Inbox", path: "/inbox", Icon: Icons.Chat, section: "inbox", visible: true },
     { label: "Leads", path: "/leads", Icon: Icons.Leads, section: "leads", visible: true },
+    { label: "Lead Forms", path: "/lead-forms", Icon: Icons.Leads, section: "leads", visible: canOpenLeadForms && !isAgent },
     { label: "Analytics", path: "/analytics", Icon: Icons.Analytics, section: "analytics", visible: !isAgent },
     { label: "Users & Permissions", path: "/users-access", Icon: Icons.Permissions, section: "users_access", visible: isWorkspaceAdmin },
     { label: "Workspace Settings", path: "/settings", Icon: Icons.Settings, section: "settings", visible: isWorkspaceAdmin },
@@ -199,23 +210,23 @@ export default function Sidebar() {
   }, []);
 
   return (
-    <aside className="m-3 flex h-[calc(100vh-1.5rem)] w-[16rem] flex-col rounded-[2rem] border border-[var(--sidebar-line)] bg-[var(--sidebar-bg)] text-[var(--sidebar-text)] shadow-[0_24px_80px_rgba(2,8,23,0.34)] backdrop-blur-2xl">
-      <div className="border-b border-[var(--sidebar-line)] px-5 py-5">
+    <aside className="m-3 flex h-[calc(100vh-1.5rem)] w-[16rem] flex-col rounded-[2rem] border-r border border-border bg-card text-foreground shadow-[0_24px_80px_rgba(0,0,0,0.08)] transition-colors duration-300">
+      <div className="border-b border-border px-5 py-5">
         <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-[rgba(255,255,255,0.16)] bg-[linear-gradient(145deg,rgba(255,255,255,0.94),rgba(224,231,255,0.86))] text-sm font-bold text-[var(--sidebar-bg)] shadow-[0_20px_50px_rgba(79,70,229,0.24)]">
+          <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-primary/20 bg-primary-fade text-sm font-bold text-primary">
             B
           </div>
           <div className="min-w-0">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.26em] text-[var(--sidebar-muted)]">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.26em] text-muted">
               Bot Platform
             </div>
-            <div className="truncate text-base font-semibold text-white">BOT.OS</div>
+            <div className="truncate text-base font-semibold text-foreground">BOT.OS</div>
           </div>
         </div>
       </div>
 
       <nav ref={navRef} className="flex-1 overflow-y-auto px-3 py-4">
-        <div className="px-3 pb-3 text-[10px] font-semibold uppercase tracking-[0.28em] text-[var(--sidebar-muted)]">
+        <div className="px-3 pb-3 text-[10px] font-semibold uppercase tracking-[0.28em] text-muted">
           {isPlatformOperator ? "Platform Admin" : "Workspace"}
         </div>
 
@@ -231,8 +242,8 @@ export default function Sidebar() {
         })}
       </nav>
 
-      <div className="border-t border-[var(--sidebar-line)] px-4 py-4">
-        <div className="rounded-2xl border border-[rgba(255,255,255,0.08)] bg-[linear-gradient(180deg,rgba(255,255,255,0.08),rgba(255,255,255,0.04))] px-4 py-3 text-[11px] font-medium text-[var(--sidebar-muted)] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
+      <div className="border-t border-border px-4 py-4">
+        <div className="rounded-2xl border border-border bg-background px-4 py-3 text-[11px] font-medium text-muted">
           {isPlatformOperator
             ? "Platform operator tools stay isolated from workspace data."
             : "Navigation is tailored to your access."}

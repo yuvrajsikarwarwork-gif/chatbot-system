@@ -66,6 +66,7 @@ export async function listLeadsService(userId: string, filters: any) {
     entryPointId: filters.entryPointId,
     flowId: filters.flowId,
     listId: filters.listId,
+    leadFormId: filters.leadFormId,
     platform: filters.platform,
     status: filters.status,
     botId: filters.botId,

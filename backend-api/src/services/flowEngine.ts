@@ -4,7 +4,6 @@ import { resolveCampaignContext } from "./campaignContextService";
 import {
   LeadCaptureContextError,
   maybeAutoCaptureLead,
-  upsertLeadCapture,
 } from "./leadCaptureService";
 import { GenericMessage, routeMessage } from "./messageRouter";
 import { normalizePlatform } from "../utils/platform";
@@ -1243,6 +1242,56 @@ export const executeFlowFromNode = async (
           type: "text",
           text,
         };
+
+        // When a plain text node is immediately followed by an input node,
+        // collapse them into a single outbound prompt and wait on the input node.
+        if (currentNodeType === "msg_text") {
+          const immediateNextNode = findNextNode(
+            currentNode.id,
+            activeNodes,
+            activeEdges,
+            ["response", "next", null, undefined]
+          );
+          const immediateNextType = normalizeRuntimeNodeType(immediateNextNode?.type);
+
+          if (immediateNextNode && immediateNextType === "input") {
+            const nextData = immediateNextNode.data || {};
+            const promptText = replaceVariables(
+              nextData.text || nextData.label || "...",
+              variables
+            );
+
+            payload = {
+              type: "text",
+              text: [text, `${promptText}\n\n_(Type 'reset' to restart)_`]
+                .filter(Boolean)
+                .join("\n\n"),
+            };
+
+            generatedActions.push(payload);
+
+            await query("UPDATE conversations SET current_node = $1 WHERE id = $2", [
+              immediateNextNode.id,
+              conversationId,
+            ]);
+
+            await scheduleWaitingNodeInactivity({
+              conversationId,
+              botId: activeBotId,
+              platformUserId,
+              waitingNodeId: String(immediateNextNode.id),
+              channel,
+              io,
+              reminderDelaySeconds: Number(nextData.reminderDelay || 0),
+              reminderText: nextData.reminderText,
+              timeoutSeconds: Number(nextData.timeout || 0),
+              timeoutFallback: nextData.timeoutFallback,
+            });
+
+            endedByInputWait = true;
+            break;
+          }
+        }
       } else if (currentNodeType === "msg_media") {
         const delayMs = Number(data.delayMs || 0);
         if (delayMs > 0) {
@@ -1449,44 +1498,6 @@ export const executeFlowFromNode = async (
         }
 
         await persistConversationVariables(conversationId, variables);
-      } else if (currentNodeType === "lead_form") {
-        try {
-          await upsertLeadCapture({
-            conversationId,
-            botId: activeBotId,
-            platform: normalizePlatform(channel),
-            variables,
-            nodeData: {
-              ...data,
-              nodeId: currentNode.id,
-            },
-            sourcePayload: {
-              platformUserId,
-              conversationId,
-            },
-          });
-        } catch (err: any) {
-          if (err instanceof LeadCaptureContextError) {
-            console.error("Lead capture skipped:", err.message);
-            payload = {
-              type: "text",
-              text:
-                data.errorText ||
-                "We could not save your details because the campaign context is incomplete.",
-            };
-            generatedActions.push(payload);
-            break;
-          }
-
-          throw err;
-        }
-
-        if (data.text) {
-          payload = {
-            type: "text",
-            text: replaceVariables(data.text, variables),
-          };
-        }
       } else if (currentNodeType === "goto") {
         const gotoType = String(data.gotoType || "").trim().toLowerCase();
         if (gotoType === "flow" || gotoType === "bot") {
@@ -1592,26 +1603,21 @@ export const executeFlowFromNode = async (
     }
 
     if (!endedByInputWait && !endedByTerminalNode) {
-      const hasExplicitLeadForm = activeNodes.some(
-        (node: any) => normalizeRuntimeNodeType(node.type) === "lead_form"
-      );
-      if (!hasExplicitLeadForm) {
-        try {
-          await maybeAutoCaptureLead({
+      try {
+        await maybeAutoCaptureLead({
+          conversationId,
+          botId: activeBotId,
+          platform: normalizedChannel,
+          variables,
+          sourcePayload: {
+            platformUserId,
             conversationId,
-            botId: activeBotId,
-            platform: normalizedChannel,
-            variables,
-            sourcePayload: {
-              platformUserId,
-              conversationId,
-              terminalAutoCapture: true,
-            },
-          });
-        } catch (err: any) {
-          if (!(err instanceof LeadCaptureContextError)) {
-            throw err;
-          }
+            terminalAutoCapture: true,
+          },
+        });
+      } catch (err: any) {
+        if (!(err instanceof LeadCaptureContextError)) {
+          throw err;
         }
       }
     }
@@ -2415,4 +2421,299 @@ export const processIncomingMessage = async (
   } catch (err: any) {
     console.error("ENGINE ERROR:", err.message);
   }
+};
+
+export const triggerFlowExternally = async (input: {
+  botId?: string | null;
+  flowId?: string | null;
+  startNodeId?: string | null;
+  conversationId?: string | null;
+  contactId?: string | null;
+  platform?: string | null;
+  channel?: string | null;
+  platformUserId?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  contactName?: string | null;
+  variables?: Record<string, any>;
+  context?: {
+    workspaceId?: string | null;
+    projectId?: string | null;
+    campaignId?: string | null;
+    channelId?: string | null;
+    entryPointId?: string | null;
+    listId?: string | null;
+    platformAccountId?: string | null;
+    entryKey?: string | null;
+  } | null;
+  io?: any;
+}) => {
+  const normalizedChannel = normalizePlatform(input.channel || input.platform || "whatsapp");
+  const requestedConversationId = String(input.conversationId || "").trim();
+  const requestedContactId = String(input.contactId || "").trim();
+  const requestedBotId = String(input.botId || "").trim();
+  const requestedFlowId = String(input.flowId || "").trim();
+  const requestedStartNodeId = String(input.startNodeId || "").trim();
+  const incomingVariables =
+    input.variables && typeof input.variables === "object" ? input.variables : {};
+
+  let conversation: any = null;
+  let contact: any = null;
+  let botId = requestedBotId;
+
+  if (requestedConversationId) {
+    const conversationRes = await query(
+      `SELECT c.*, ct.platform_user_id, ct.name AS contact_record_name, ct.phone AS contact_record_phone, ct.email AS contact_record_email
+       FROM conversations c
+       JOIN contacts ct ON ct.id = c.contact_id
+       WHERE c.id = $1
+       LIMIT 1`,
+      [requestedConversationId]
+    );
+    conversation = conversationRes.rows[0] || null;
+    if (!conversation) {
+      throw { status: 404, message: "Conversation not found" };
+    }
+
+    contact = {
+      id: conversation.contact_id,
+      platform_user_id: conversation.platform_user_id,
+      name: conversation.contact_record_name,
+      phone: conversation.contact_record_phone,
+      email: conversation.contact_record_email,
+    };
+    botId = botId || String(conversation.bot_id || "").trim();
+  }
+
+  if (!botId) {
+    throw { status: 400, message: "botId is required when conversationId is not provided" };
+  }
+
+  const bot = await findBotById(botId);
+  if (!bot) {
+    throw { status: 404, message: "Bot not found" };
+  }
+
+  if (!bot.workspace_id || !bot.project_id) {
+    throw {
+      status: 409,
+      message: "Target bot must belong to a workspace project before it can be triggered externally.",
+    };
+  }
+
+  await validateWorkspaceContext(bot.workspace_id);
+
+  if (!contact) {
+    if (requestedContactId) {
+      const contactRes = await query(
+        `SELECT id, platform_user_id, name, phone, email
+         FROM contacts
+         WHERE id = $1
+         LIMIT 1`,
+        [requestedContactId]
+      );
+      contact = contactRes.rows[0] || null;
+      if (!contact) {
+        throw { status: 404, message: "Contact not found" };
+      }
+    } else {
+      const resolvedPlatformUserId =
+        String(input.platformUserId || input.phone || input.email || "").trim();
+      if (!resolvedPlatformUserId) {
+        throw {
+          status: 400,
+          message:
+            "Provide conversationId, contactId, or a platformUserId/phone/email to trigger a flow.",
+        };
+      }
+
+      contact = await upsertContactWithIdentity({
+        botId,
+        workspaceId: bot.workspace_id,
+        platform: normalizedChannel,
+        platformUserId: resolvedPlatformUserId,
+        name: input.contactName || null,
+        phone: input.phone || (normalizedChannel === "whatsapp" ? resolvedPlatformUserId : null),
+        email: input.email || (normalizedChannel === "email" ? resolvedPlatformUserId : null),
+      });
+    }
+  }
+
+  const explicitContext = input.context && typeof input.context === "object" ? input.context : {};
+  const resolvedContext = {
+    workspaceId: String(explicitContext.workspaceId || bot.workspace_id || "").trim() || null,
+    projectId: String(explicitContext.projectId || bot.project_id || "").trim() || null,
+    campaignId: String(explicitContext.campaignId || "").trim() || null,
+    channelId: String(explicitContext.channelId || "").trim() || null,
+    entryPointId: String(explicitContext.entryPointId || "").trim() || null,
+    flowId: requestedFlowId || null,
+    listId: String(explicitContext.listId || "").trim() || null,
+    platform: normalizedChannel,
+    platformAccountId: String(explicitContext.platformAccountId || "").trim() || null,
+    entryKey: String(explicitContext.entryKey || "").trim() || null,
+    campaignName: null,
+    channelName: null,
+    entryName: null,
+    entryMetadata: null,
+    userId: null,
+  };
+
+  if (!conversation) {
+    conversation =
+      (await findConversationByContext(contact.id, normalizedChannel, resolvedContext)) ||
+      (await findLatestConversationForBotContact(
+        botId,
+        contact.id,
+        normalizedChannel,
+        resolvedContext.projectId || null
+      ));
+
+    if (!conversation) {
+      const insertConversationRes = await query(
+        `INSERT INTO conversations (bot_id, workspace_id, project_id, contact_id, channel, status, variables, campaign_id, channel_id, entry_point_id, flow_id, list_id, platform, platform_account_id, context_json, contact_name, contact_phone)
+         VALUES ($1, $2, $3, $4, $5, 'active', '{}'::jsonb, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14, $15)
+         RETURNING *`,
+        [
+          botId,
+          resolvedContext.workspaceId,
+          resolvedContext.projectId,
+          contact.id,
+          normalizedChannel,
+          resolvedContext.campaignId,
+          resolvedContext.channelId,
+          resolvedContext.entryPointId,
+          resolvedContext.flowId,
+          resolvedContext.listId,
+          normalizedChannel,
+          resolvedContext.platformAccountId,
+          buildConversationContextPayload(resolvedContext),
+          input.contactName || contact.name || null,
+          input.phone || contact.phone || null,
+        ]
+      );
+      conversation = insertConversationRes.rows[0] || null;
+      if (conversation) {
+        await applyConversationWorkspacePolicies(conversation.id);
+      }
+    }
+  }
+
+  if (!conversation) {
+    throw { status: 500, message: "Unable to create or resolve a conversation for this trigger." };
+  }
+
+  const availableFlows = await loadEligibleFlows(
+    botId,
+    conversation.project_id || bot.project_id || null
+  );
+  const targetFlow =
+    (requestedFlowId
+      ? availableFlows.find((flow: FlowRuntimeRecord) => String(flow.id) === requestedFlowId)
+      : null) ||
+    availableFlows.find((flow: FlowRuntimeRecord) => String(flow.id) === String(conversation.flow_id || "")) ||
+    availableFlows.find((flow: FlowRuntimeRecord) => flow.is_default) ||
+    availableFlows[0] ||
+    null;
+
+  if (!targetFlow) {
+    throw { status: 404, message: "No runnable flow was found for the target bot." };
+  }
+
+  const targetNodes = Array.isArray(targetFlow.flow_json?.nodes) ? targetFlow.flow_json.nodes : [];
+  const targetEdges = Array.isArray(targetFlow.flow_json?.edges) ? targetFlow.flow_json.edges : [];
+  const startNode =
+    (requestedStartNodeId
+      ? targetNodes.find((node: any) => String(node.id) === requestedStartNodeId)
+      : null) || resolveFlowEntryNode(targetFlow.flow_json);
+
+  if (!startNode) {
+    throw { status: 409, message: "The selected flow has no runnable entry node." };
+  }
+
+  const mergedVariables = {
+    ...parseVariables(conversation.variables),
+    ...incomingVariables,
+  };
+
+  await query(
+    `UPDATE conversations
+     SET bot_id = $1,
+         workspace_id = COALESCE($2, workspace_id),
+         project_id = COALESCE($3, project_id),
+         flow_id = $4,
+         current_node = NULL,
+         variables = $5::jsonb,
+         status = 'active',
+         retry_count = 0,
+         campaign_id = COALESCE($6, campaign_id),
+         channel_id = COALESCE($7, channel_id),
+         entry_point_id = COALESCE($8, entry_point_id),
+         list_id = COALESCE($9, list_id),
+         platform = COALESCE($10, platform, channel),
+         platform_account_id = COALESCE($11, platform_account_id),
+         context_json = COALESCE(context_json, '{}'::jsonb) || $12::jsonb,
+         updated_at = NOW()
+     WHERE id = $13`,
+    [
+      botId,
+      resolvedContext.workspaceId,
+      resolvedContext.projectId,
+      targetFlow.id,
+      JSON.stringify(mergedVariables),
+      resolvedContext.campaignId,
+      resolvedContext.channelId,
+      resolvedContext.entryPointId,
+      resolvedContext.listId,
+      normalizedChannel,
+      resolvedContext.platformAccountId,
+      buildConversationContextPayload({
+        ...resolvedContext,
+        flowId: targetFlow.id,
+      }),
+      conversation.id,
+    ]
+  );
+
+  await closeSiblingRunnableConversations(
+    conversation.id,
+    botId,
+    contact.id,
+    normalizedChannel,
+    resolvedContext.projectId || null
+  );
+
+  const platformUserId =
+    String(contact.platform_user_id || input.platformUserId || input.phone || input.email || "").trim() ||
+    String(contact.id);
+
+  await closePlatformUserRunnableConversations(
+    conversation.id,
+    platformUserId,
+    normalizedChannel
+  );
+
+  const actions = await executeFlowFromNode(
+    startNode,
+    conversation.id,
+    botId,
+    platformUserId,
+    targetNodes,
+    targetEdges,
+    normalizedChannel,
+    input.io
+  );
+
+  for (const action of actions) {
+    await routeMessage(conversation.id, action, input.io);
+  }
+
+  return {
+    conversationId: conversation.id,
+    contactId: contact.id,
+    botId,
+    flowId: targetFlow.id,
+    startNodeId: String(startNode.id),
+    actionCount: actions.length,
+    actions,
+  };
 };

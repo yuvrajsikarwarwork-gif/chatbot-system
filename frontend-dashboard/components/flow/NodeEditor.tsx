@@ -1,13 +1,14 @@
 // frontend-dashboard/components/flow/NodeEditor.tsx
 
 import { Node } from "reactflow";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import apiClient from "../../services/apiClient";
 import { RotateCcw, Link, Headset, Bot, LayoutTemplate } from "lucide-react";
 
 interface NodeEditorProps {
   node: Node | null;
   onUpdate: (data: any) => void;
+  onSaveAndClose?: (data: any) => void | Promise<void>;
   onClose: () => void;
   currentBotId?: string;
   currentFlowId?: string | null;
@@ -17,32 +18,85 @@ interface NodeEditorProps {
     string,
     Array<{ id: string; flow_name?: string; name?: string; is_default?: boolean }>
   >;
+  leadForms?: Array<{
+    id: string;
+    name?: string;
+    fields?: Array<{
+      id?: string;
+      fieldKey: string;
+      fieldType?: string;
+      questionLabel: string;
+      isRequired?: boolean;
+      sortOrder?: number;
+    }>;
+  }>;
 }
 
 export default function NodeEditor({
   node,
   onUpdate,
+  onSaveAndClose,
   onClose,
   currentBotId,
   currentFlowId,
   flowOptions = [],
   botOptions = [],
   flowOptionsByBot = {},
+  leadForms = [],
 }: NodeEditorProps) {
   const [isUploading, setIsUploading] = useState(false);
   const [draftData, setDraftData] = useState<any>(node?.data || {});
+  const draftDataRef = useRef<any>(node?.data || {});
 
-  if (!node) return null;
+  const handleSaveAndCloseClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const latestDraft = draftDataRef.current;
+
+    if (onSaveAndClose) {
+      void onSaveAndClose(latestDraft);
+      return;
+    }
+
+    onUpdate(latestDraft);
+    onClose();
+  };
 
   useEffect(() => {
     setDraftData(node?.data || {});
-  }, [node?.id]);
+    draftDataRef.current = node?.data || {};
+  }, [node?.id, node?.data]);
+
+  if (!node) return null;
 
   const updateData = (key: string, value: any) => {
-    setDraftData((prev: any) => ({ ...prev, [key]: value }));
+    setDraftData((prev: any) => {
+      const next = { ...prev, [key]: value };
+      draftDataRef.current = next;
+      return next;
+    });
+  };
+
+  const inferValidationForLeadField = (fieldType?: string, fieldKey?: string) => {
+    const normalizedType = String(fieldType || "").trim().toLowerCase();
+    const normalizedKey = String(fieldKey || "").trim().toLowerCase();
+
+    if (normalizedType === "email" || normalizedKey === "email") return "email";
+    if (normalizedType === "phone" || normalizedKey === "phone") return "phone";
+    if (normalizedType === "number") return "number";
+    if (normalizedType === "date") return "date";
+    return "text";
   };
 
   const gotoType = String(draftData.gotoType || "node").trim().toLowerCase();
+  const selectedLeadFormId = String(draftData.linkedFormId || "").trim();
+  const selectedLeadForm =
+    leadForms.find((form) => String(form.id) === selectedLeadFormId) || null;
+  const selectedLeadFormFields = Array.isArray(selectedLeadForm?.fields)
+    ? [...selectedLeadForm.fields].sort(
+        (a, b) => Number(a.sortOrder || 0) - Number(b.sortOrder || 0)
+      )
+    : [];
   const sameBotFlowOptions = flowOptions.filter(
     (flow) => String(flow.id) !== String(currentFlowId || "")
   );
@@ -50,6 +104,31 @@ export default function NodeEditor({
   const targetBotFlowOptions = selectedTargetBotId
     ? flowOptionsByBot[selectedTargetBotId] || []
     : [];
+
+  const applyLeadFormFieldSelection = (formId: string, fieldKey: string) => {
+    const form = leadForms.find((item) => String(item.id) === String(formId)) || null;
+    const field =
+      Array.isArray(form?.fields)
+        ? form.fields.find((item) => String(item.fieldKey) === String(fieldKey)) || null
+        : null;
+
+    setDraftData((prev: any) => {
+      const next = {
+      ...prev,
+      linkLeadForm: true,
+      linkedFormId: formId,
+      linkedFieldKey: field?.fieldKey || "",
+      variable: field?.fieldKey || "",
+      validation: inferValidationForLeadField(field?.fieldType, field?.fieldKey),
+      text:
+        String(prev.text || "").trim().length > 0
+          ? prev.text
+          : field?.questionLabel || prev.text || "",
+      };
+      draftDataRef.current = next;
+      return next;
+    });
+  };
 
   const handleMediaUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -206,6 +285,102 @@ export default function NodeEditor({
         </select>
       </div>
 
+      <div className="space-y-3 rounded-xl border border-emerald-100 bg-emerald-50 p-4">
+        <label className="flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.16em] text-emerald-800">
+          <input
+            type="checkbox"
+            checked={Boolean(draftData.linkLeadForm)}
+            onChange={(e) => {
+              const enabled = e.target.checked;
+              if (!enabled) {
+                setDraftData((prev: any) => {
+                  const next = {
+                    ...prev,
+                    linkLeadForm: false,
+                    linkedFormId: "",
+                    linkedFieldKey: "",
+                  };
+                  draftDataRef.current = next;
+                  return next;
+                });
+                return;
+              }
+
+              setDraftData((prev: any) => {
+                const next = {
+                  ...prev,
+                  linkLeadForm: true,
+                };
+                draftDataRef.current = next;
+                return next;
+              });
+            }}
+          />
+          Link To Lead Form
+        </label>
+
+        {draftData.linkLeadForm ? (
+          <div className="text-[11px] leading-5 text-emerald-800">
+            Choose which form this answer belongs to, then choose which question/field in that form should receive the user's response.
+          </div>
+        ) : null}
+
+        {draftData.linkLeadForm ? (
+          <>
+            <div>
+              <label className="mb-1 block text-[10px] font-black uppercase tracking-widest text-emerald-700">
+                Which Form?
+              </label>
+              <select
+                className="w-full border border-emerald-200 bg-white rounded-lg p-2.5 text-xs font-medium outline-none"
+                value={draftData.linkedFormId || ""}
+                onChange={(e) => {
+                  const nextFormId = e.target.value;
+                  const nextForm =
+                    leadForms.find((form) => String(form.id) === String(nextFormId)) || null;
+                  const firstField = Array.isArray(nextForm?.fields) ? nextForm.fields[0] : null;
+                  applyLeadFormFieldSelection(nextFormId, String(firstField?.fieldKey || ""));
+                }}
+              >
+                <option value="">Select lead form</option>
+                {leadForms.map((form) => (
+                  <option key={form.id} value={form.id}>
+                    {form.name || "Untitled form"}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-[10px] font-black uppercase tracking-widest text-emerald-700">
+                Which Question?
+              </label>
+              <select
+                className="w-full border border-emerald-200 bg-white rounded-lg p-2.5 text-xs font-medium outline-none"
+                value={draftData.linkedFieldKey || ""}
+                onChange={(e) => {
+                  applyLeadFormFieldSelection(String(draftData.linkedFormId || ""), e.target.value);
+                }}
+                disabled={!selectedLeadForm}
+              >
+                <option value="">Select question</option>
+                {selectedLeadFormFields.map((field) => (
+                  <option key={field.id || field.fieldKey} value={field.fieldKey}>
+                    {field.questionLabel || field.fieldKey}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {leadForms.length === 0 ? (
+              <div className="text-[11px] leading-5 text-emerald-800">
+                No lead forms exist yet. Create one from the Lead Forms page first.
+              </div>
+            ) : null}
+          </>
+        ) : null}
+      </div>
+
       {draftData.validation === 'regex' && (
         <div>
           <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Regex Pattern</label>
@@ -279,6 +454,9 @@ export default function NodeEditor({
 
   const RenderApiNode = () => (
     <div className="space-y-4 pt-4 border-t border-slate-200">
+      <div className="rounded-xl border border-violet-100 bg-violet-50 p-3 text-[11px] leading-5 text-violet-800">
+        Send a live HTTP request to an external tool after the bot collects data. Use <span className="font-black">{"{{variable_name}}"}</span> placeholders in the URL, headers, and body.
+      </div>
       <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Method</label>
@@ -295,13 +473,31 @@ export default function NodeEditor({
           <input className="w-full border border-slate-200 bg-slate-50 rounded-lg p-2.5 text-xs font-mono" placeholder="api_response" value={draftData.saveTo || ""} onChange={(e) => updateData("saveTo", e.target.value)} />
         </div>
       </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Save Status To</label>
+          <input className="w-full border border-slate-200 bg-slate-50 rounded-lg p-2.5 text-xs font-mono" placeholder="api_status" value={draftData.statusSaveTo || ""} onChange={(e) => updateData("statusSaveTo", e.target.value)} />
+        </div>
+        <div>
+          <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Timeout (ms)</label>
+          <input type="number" min="0" step="100" className="w-full border border-slate-200 bg-slate-50 rounded-lg p-2.5 text-xs" placeholder="10000" value={draftData.timeoutMs || ""} onChange={(e) => updateData("timeoutMs", Number(e.target.value || 0))} />
+        </div>
+      </div>
       <div>
         <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">URL</label>
         <input className="w-full border border-slate-200 bg-slate-50 rounded-lg p-2.5 text-xs font-mono" placeholder="https://api.example.com/orders" value={draftData.url || ""} onChange={(e) => updateData("url", e.target.value)} />
       </div>
       <div>
+        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Headers (JSON)</label>
+        <textarea className="w-full border border-slate-200 bg-slate-50 rounded-lg p-2.5 text-xs font-mono resize-none h-20" placeholder='{"Authorization":"Bearer {{crm_token}}","Content-Type":"application/json"}' value={draftData.headers || ""} onChange={(e) => updateData("headers", e.target.value)} />
+      </div>
+      <div>
         <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">JSON Body</label>
         <textarea className="w-full border border-slate-200 bg-slate-50 rounded-lg p-2.5 text-xs font-mono resize-none h-24" placeholder='{"orderId":"{{order_id}}"}' value={draftData.body || ""} onChange={(e) => updateData("body", e.target.value)} />
+      </div>
+      <div>
+        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Allowed Success Status Codes</label>
+        <input className="w-full border border-slate-200 bg-slate-50 rounded-lg p-2.5 text-xs font-mono" placeholder="200,201,202" value={draftData.successStatuses || ""} onChange={(e) => updateData("successStatuses", e.target.value)} />
       </div>
     </div>
   );
@@ -462,14 +658,18 @@ export default function NodeEditor({
               value={draftData.targetBotId || ""}
               onChange={(e) => {
                 const nextBotId = e.target.value;
-                setDraftData((prev: any) => ({
-                  ...prev,
-                  targetBotId: nextBotId,
-                  targetFlowId:
-                    nextBotId && String(nextBotId) === String(prev.targetBotId || "")
-                      ? prev.targetFlowId || ""
-                      : "",
-                }));
+                setDraftData((prev: any) => {
+                  const next = {
+                    ...prev,
+                    targetBotId: nextBotId,
+                    targetFlowId:
+                      nextBotId && String(nextBotId) === String(prev.targetBotId || "")
+                        ? prev.targetFlowId || ""
+                        : "",
+                  };
+                  draftDataRef.current = next;
+                  return next;
+                });
               }}
             >
               <option value="">Select bot</option>
@@ -543,41 +743,6 @@ export default function NodeEditor({
     </div>
   );
 
-  const RenderLeadFormNode = () => (
-    <div className="space-y-4 pt-4 border-t border-slate-200">
-      <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-3 text-[11px] leading-5 text-emerald-800">
-        This node saves a lead using runtime context from campaign, channel, entry point, flow, and list. The flow stays reusable because the campaign context comes from the entry point, not from the flow itself.
-      </div>
-
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-400">Name Variable</label>
-          <input className="w-full rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-xs font-mono" placeholder="name" value={draftData.nameVariable || ""} onChange={(e) => updateData("nameVariable", e.target.value)} />
-        </div>
-        <div>
-          <label className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-400">Phone Variable</label>
-          <input className="w-full rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-xs font-mono" placeholder="phone" value={draftData.phoneVariable || ""} onChange={(e) => updateData("phoneVariable", e.target.value)} />
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-400">Email Variable</label>
-          <input className="w-full rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-xs font-mono" placeholder="email" value={draftData.emailVariable || ""} onChange={(e) => updateData("emailVariable", e.target.value)} />
-        </div>
-        <div>
-          <label className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-400">Lead Status</label>
-          <input className="w-full rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-xs font-mono" placeholder="captured" value={draftData.statusValue || ""} onChange={(e) => updateData("statusValue", e.target.value)} />
-        </div>
-      </div>
-
-      <div>
-        <label className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-400">Source Label</label>
-        <input className="w-full rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-xs font-mono" placeholder="lead_form" value={draftData.sourceLabel || ""} onChange={(e) => updateData("sourceLabel", e.target.value)} />
-      </div>
-    </div>
-  );
-
   const RenderKnowledgeLookupNode = () => (
     <div className="space-y-4 pt-4 border-t border-slate-200">
       <div className="rounded-xl border border-sky-100 bg-sky-50 p-3 text-[11px] leading-5 text-sky-800">
@@ -632,7 +797,6 @@ export default function NodeEditor({
       case 'resume_bot': return RenderSystemTextNode("This node returns the conversation from human mode back into bot mode.");
       case 'goto': return <RenderGotoNode />;
       case 'condition': return <RenderConditionNode />;
-      case 'lead_form': return <RenderLeadFormNode />;
       case 'knowledge_lookup': return <RenderKnowledgeLookupNode />;
       case 'save': return <RenderSaveNode />;
       default: return null;
@@ -642,7 +806,10 @@ export default function NodeEditor({
   return (
     <div 
       className="w-full h-full bg-white flex flex-col relative overflow-hidden nodrag nopan" 
+      onPointerDownCapture={(e) => e.stopPropagation()}
+      onPointerUpCapture={(e) => e.stopPropagation()}
       onMouseDownCapture={(e) => e.stopPropagation()}
+      onMouseUpCapture={(e) => e.stopPropagation()}
       onClickCapture={(e) => e.stopPropagation()}
       onKeyDownCapture={(e) => e.stopPropagation()}
       onKeyUpCapture={(e) => e.stopPropagation()}
@@ -672,10 +839,16 @@ export default function NodeEditor({
       </div>
       <div className="w-full p-4 border-t border-slate-200 bg-white shrink-0 shadow-[0_-10px_20px_-5px_rgba(0,0,0,0.05)] z-10">
         <button
-          onClick={() => {
-            onUpdate(draftData);
-            onClose();
+          type="button"
+          onPointerDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
           }}
+          onMouseDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
+          onClick={handleSaveAndCloseClick}
           className="w-full bg-slate-900 text-white py-3 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-black transition-all shadow-lg active:scale-95"
         >
           Save & Close

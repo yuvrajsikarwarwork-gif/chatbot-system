@@ -17,6 +17,7 @@ import RequirePermission from "../components/access/RequirePermission";
 import DashboardLayout from "../components/layout/DashboardLayout";
 import { useVisibility } from "../hooks/useVisibility";
 import { flowService } from "../services/flowService";
+import { leadFormService, type LeadFormRecord } from "../services/leadFormService";
 import { botService } from "../services/botService";
 import apiClient from "../services/apiClient";
 import { useAuthStore } from "../store/authStore";
@@ -24,6 +25,16 @@ import { useBotStore } from "../store/botStore";
 import { confirmAction, notify } from "../store/uiStore";
 import { NODE_CATEGORIES, AUTO_SAVE_DELAY, formatDefaultLabel } from "../config/flowConstants";
 import { useFlowHistory } from "../hooks/useFlowHistory";
+
+const FLOW_CANVAS_NODE_TYPES: any = (() => {
+  const types: any = { default: NodeComponent, message: NodeComponent };
+  NODE_CATEGORIES.forEach((category) => {
+    category.items.forEach((item) => {
+      types[item.type] = NodeComponent;
+    });
+  });
+  return types;
+})();
 
 function FlowBuilderCanvas() {
   const router = useRouter();
@@ -61,6 +72,7 @@ function FlowBuilderCanvas() {
   const [flowNameDraft, setFlowNameDraft] = useState("");
   const [flowSummaries, setFlowSummaries] = useState<any[]>([]);
   const [flowOptionsByBot, setFlowOptionsByBot] = useState<Record<string, any[]>>({});
+  const [leadForms, setLeadForms] = useState<LeadFormRecord[]>([]);
   const [allowedNodeTypes, setAllowedNodeTypes] = useState<string[]>([]);
   const [nodeDisabledReasons, setNodeDisabledReasons] = useState<Record<string, string>>({});
   const [hasClipboardSelection, setHasClipboardSelection] = useState(false);
@@ -71,21 +83,80 @@ function FlowBuilderCanvas() {
   const [isSaving, setIsSaving] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
   const saveTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const suppressNodeSelectionRef = useRef(false);
 
   const { takeSnapshot, undo, redo, past, future } = useFlowHistory(nodes, edges, setNodes, setEdges, setIsDirty);
 
   const normalizeFlowForCanvas = useCallback((flowJson: any) => {
-    const nodes = Array.isArray(flowJson?.nodes)
+    const rawNodes = Array.isArray(flowJson?.nodes)
       ? flowJson.nodes.map((node: any) => ({
           ...node,
           type: String(node?.type || "").trim().toLowerCase() === "message" ? "msg_text" : node?.type,
         }))
       : [];
+    const rawEdges = Array.isArray(flowJson?.edges) ? flowJson.edges : [];
+
+    const removedLeadFormNodeIds = new Set(
+      rawNodes
+        .filter((node: any) => String(node?.type || "").trim().toLowerCase() === "lead_form")
+        .map((node: any) => String(node.id))
+    );
+
+    if (removedLeadFormNodeIds.size === 0) {
+      return {
+        ...(flowJson && typeof flowJson === "object" ? flowJson : {}),
+        nodes: rawNodes,
+        edges: rawEdges,
+      };
+    }
+
+    const nodes = rawNodes.filter(
+      (node: any) => !removedLeadFormNodeIds.has(String(node.id))
+    );
+    const incomingEdges = rawEdges.filter((edge: any) =>
+      removedLeadFormNodeIds.has(String(edge.target))
+    );
+    const outgoingEdges = rawEdges.filter((edge: any) =>
+      removedLeadFormNodeIds.has(String(edge.source))
+    );
+    const preservedEdges = rawEdges.filter(
+      (edge: any) =>
+        !removedLeadFormNodeIds.has(String(edge.source)) &&
+        !removedLeadFormNodeIds.has(String(edge.target))
+    );
+    const stitchedEdges: any[] = [];
+
+    incomingEdges.forEach((incoming: any) => {
+      outgoingEdges
+        .filter((candidate: any) => String(candidate.source) === String(incoming.target))
+        .forEach((outgoing: any) => {
+          stitchedEdges.push({
+            ...outgoing,
+            id: `frontend-migrated-${incoming.id}-${outgoing.id}`,
+            source: incoming.source,
+            sourceHandle: incoming.sourceHandle || null,
+            target: outgoing.target,
+            targetHandle: outgoing.targetHandle || null,
+            selected: false,
+          });
+        });
+    });
+
+    const edges = [...preservedEdges, ...stitchedEdges].filter(
+      (edge: any, index: number, collection: any[]) =>
+        collection.findIndex(
+          (candidate: any) =>
+            String(candidate.source || "") === String(edge.source || "") &&
+            String(candidate.sourceHandle || "") === String(edge.sourceHandle || "") &&
+            String(candidate.target || "") === String(edge.target || "") &&
+            String(candidate.targetHandle || "") === String(edge.targetHandle || "")
+        ) === index
+    );
 
     return {
       ...(flowJson && typeof flowJson === "object" ? flowJson : {}),
       nodes,
-      edges: Array.isArray(flowJson?.edges) ? flowJson.edges : [],
+      edges,
     };
   }, []);
 
@@ -101,11 +172,17 @@ function FlowBuilderCanvas() {
     setEdges(normalizedFlow.edges);
   }, [normalizeFlowForCanvas, setNodes, setEdges]);
 
-  const nodeTypes = useMemo(() => {
-    const types: any = { default: NodeComponent };
-    NODE_CATEGORIES.forEach(cat => cat.items.forEach(node => types[node.type] = NodeComponent));
-    types.message = NodeComponent;
-    return types;
+  const refreshFlowSummariesSafe = useCallback(async (targetBotId: string) => {
+    if (!targetBotId) return [];
+    try {
+      const summaries = await flowService.getFlowSummaries(targetBotId);
+      const normalized = Array.isArray(summaries) ? summaries : [];
+      setFlowSummaries(normalized);
+      return normalized;
+    } catch (error) {
+      console.error("Flow summaries refresh failed:", error);
+      return [];
+    }
   }, []);
 
   useEffect(() => {
@@ -165,6 +242,20 @@ function FlowBuilderCanvas() {
         );
         setFlowOptionsByBot(Object.fromEntries(summariesByBotEntries));
 
+        if (activeWorkspace?.workspace_id) {
+          try {
+            const leadFormRows = await leadFormService.list(
+              activeWorkspace.workspace_id,
+              activeProject?.id || undefined
+            );
+            setLeadForms(Array.isArray(leadFormRows) ? leadFormRows : []);
+          } catch {
+            setLeadForms([]);
+          }
+        } else {
+          setLeadForms([]);
+        }
+
         if (botId && isUnlocked) {
           const botInfo = await apiClient.get(`/bots/${botId}`);
           setBotMetadata(botInfo.data);
@@ -175,8 +266,7 @@ function FlowBuilderCanvas() {
               ? capabilities.disabledReasons
               : {}
           );
-          const summaries = await flowService.getFlowSummaries(botId);
-          setFlowSummaries(Array.isArray(summaries) ? summaries : []);
+          const summaries = await refreshFlowSummariesSafe(botId);
           const initialFlowId =
             (typeof router.query.flowId === "string" && router.query.flowId) ||
             summaries?.[0]?.id ||
@@ -187,6 +277,7 @@ function FlowBuilderCanvas() {
           setCurrentFlowId(null);
           setCurrentFlowName("");
           setFlowSummaries([]);
+          setLeadForms([]);
           setAllowedNodeTypes([]);
           setNodeDisabledReasons({});
         }
@@ -204,29 +295,11 @@ function FlowBuilderCanvas() {
     unlockedBotIds,
     router.isReady,
     applyLoadedFlow,
+    refreshFlowSummariesSafe,
     activeWorkspace?.workspace_id,
     activeProject?.id,
     canViewFlowsPage,
   ]);
-
-  const handleSelectFlow = useCallback(async (flowId: string) => {
-    if (!botId || !flowId) {
-      return;
-    }
-
-    try {
-      setIsLoading(true);
-      const data = await flowService.getFlow(botId, flowId);
-      applyLoadedFlow(data);
-      setSelectedNode(null);
-      setIsDirty(false);
-    } catch (err) {
-      console.error("Failed to load selected flow", err);
-      notify("Failed to load flow.", "error");
-    } finally {
-      setIsLoading(false);
-    }
-  }, [applyLoadedFlow, botId]);
 
   const openCreateFlowDialog = useCallback(() => {
     const nextIndex = (flowSummaries?.length || 0) + 1;
@@ -269,12 +342,11 @@ function FlowBuilderCanvas() {
       flowSummaries.length === 0
     );
 
-    const summaries = await flowService.getFlowSummaries(botId);
-    setFlowSummaries(Array.isArray(summaries) ? summaries : []);
+    await refreshFlowSummariesSafe(botId);
     applyLoadedFlow(created);
     setSelectedNode(null);
     setIsDirty(false);
-  }, [applyLoadedFlow, botId, canEditProjectWorkflow]);
+  }, [applyLoadedFlow, botId, canEditProjectWorkflow, flowSummaries.length, refreshFlowSummariesSafe]);
 
   const handleRenameFlow = useCallback(async (nextName: string) => {
     if (!botId || !currentFlowId || !canEditProjectWorkflow) {
@@ -290,8 +362,7 @@ function FlowBuilderCanvas() {
         nextName
       );
       setCurrentFlowName(String(saved?.flow_name || nextName).trim());
-      const summaries = await flowService.getFlowSummaries(botId);
-      setFlowSummaries(Array.isArray(summaries) ? summaries : []);
+      await refreshFlowSummariesSafe(botId);
       setIsDirty(false);
       notify("Flow name updated.", "success");
     } catch (err) {
@@ -300,7 +371,7 @@ function FlowBuilderCanvas() {
     } finally {
       setIsSaving(false);
     }
-  }, [botId, canEditProjectWorkflow, currentFlowId, nodes, edges]);
+  }, [botId, canEditProjectWorkflow, currentFlowId, nodes, edges, refreshFlowSummariesSafe]);
 
   const handleSubmitFlowNameDialog = useCallback(async () => {
     const nextName = flowNameDraft.trim();
@@ -321,30 +392,115 @@ function FlowBuilderCanvas() {
     }
   }, [closeFlowNameDialog, flowNameDialogMode, flowNameDraft, handleCreateFlow, handleRenameFlow]);
 
-  const handleSave = useCallback(async () => {
-    if (!botId || !isDirty || !isUnlocked || !canEditProjectWorkflow) return;
+  const persistFlow = useCallback(async (nextNodes = nodes, nextEdges = edges, force = false) => {
+    if (!botId || !isUnlocked || !canEditProjectWorkflow) return false;
+    if (!force && !isDirty) return true;
+
     setIsSaving(true);
     try {
       const saved = await flowService.saveFlow(
         botId,
-        { nodes, edges },
+        { nodes: nextNodes, edges: nextEdges },
         currentFlowId || undefined,
         currentFlowName.trim() || undefined
       );
       setCurrentFlowId(saved?.id || currentFlowId);
       setCurrentFlowName(String(saved?.flow_name || currentFlowName).trim());
       if (saved?.id) {
-        const summaries = await flowService.getFlowSummaries(botId);
-        setFlowSummaries(Array.isArray(summaries) ? summaries : []);
+        await refreshFlowSummariesSafe(botId);
       }
       setIsDirty(false);
+      return true;
     } catch (err) { 
       console.error("Save error", err); 
       notify("Failed to save workflow.", "error");
+      return false;
     } finally {
       setTimeout(() => setIsSaving(false), 800);
     }
-  }, [botId, nodes, edges, isDirty, isUnlocked, currentFlowId, currentFlowName, canEditProjectWorkflow]);
+  }, [botId, nodes, edges, isDirty, isUnlocked, currentFlowId, currentFlowName, canEditProjectWorkflow, refreshFlowSummariesSafe]);
+
+  const handleSave = useCallback(async () => {
+    await persistFlow(nodes, edges, false);
+  }, [persistFlow, nodes, edges]);
+
+  const suppressNodeReselect = useCallback(() => {
+    suppressNodeSelectionRef.current = true;
+    window.setTimeout(() => {
+      suppressNodeSelectionRef.current = false;
+    }, 600);
+  }, []);
+
+  const handleNodeSaveAndClose = useCallback(async (newData: any) => {
+    if (!selectedNode) {
+      setSelectedNode(null);
+      return;
+    }
+
+    suppressNodeReselect();
+
+    const nextNodes = nodes.map((node) =>
+      node.id === selectedNode.id ? { ...node, data: newData } : node
+    );
+
+    setNodes(nextNodes);
+    setSelectedNode(null);
+    setIsDirty(true);
+
+    const saved = await persistFlow(nextNodes, edges, true);
+    if (!saved) {
+      notify("Node changes were applied locally, but flow save failed.", "error");
+    }
+  }, [selectedNode, nodes, edges, persistFlow, setNodes, suppressNodeReselect]);
+
+  const handleCloseNodeEditor = useCallback(() => {
+    suppressNodeReselect();
+    setSelectedNode(null);
+  }, [suppressNodeReselect]);
+
+  const handleCloseBuilder = useCallback(async () => {
+    if (isSaving) {
+      return;
+    }
+
+    try {
+      if (isDirty && canEditProjectWorkflow) {
+        const saved = await persistFlow(nodes, edges, false);
+        if (!saved) {
+          return;
+        }
+      }
+      await router.push("/bots");
+    } catch (err) {
+      console.error("Close builder error", err);
+      notify("Failed to save workflow before closing.", "error");
+    }
+  }, [canEditProjectWorkflow, persistFlow, nodes, edges, isDirty, isSaving, router]);
+
+  const handleSelectFlow = useCallback(async (flowId: string) => {
+    if (!botId || !flowId) {
+      return;
+    }
+
+    try {
+      if (isDirty) {
+        const saved = await persistFlow(nodes, edges, false);
+        if (!saved) {
+          return;
+        }
+      }
+      setIsLoading(true);
+      const data = await flowService.getFlow(botId, flowId);
+      applyLoadedFlow(data);
+      setSelectedNode(null);
+      setIsDirty(false);
+    } catch (err) {
+      console.error("Failed to load selected flow", err);
+      notify("Failed to load flow.", "error");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [applyLoadedFlow, botId, persistFlow, nodes, edges, isDirty]);
 
   useEffect(() => {
     if (isDirty) {
@@ -635,6 +791,7 @@ function FlowBuilderCanvas() {
               onPasteSelected={pasteSelected}
               onDeleteFlow={handleDeleteFlow}
               onSave={handleSave}
+              onCloseBuilder={handleCloseBuilder}
               isDirty={isDirty}
               isSaving={isSaving}
               canDeleteFlow={Boolean(currentFlowId)}
@@ -667,6 +824,7 @@ function FlowBuilderCanvas() {
         onPasteSelected={pasteSelected}
         onDeleteFlow={handleDeleteFlow}
         onSave={handleSave}
+        onCloseBuilder={handleCloseBuilder}
         isDirty={isDirty}
         isSaving={isSaving}
         canDeleteFlow={Boolean(currentFlowId)}
@@ -741,9 +899,14 @@ function FlowBuilderCanvas() {
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
-            onNodeClick={(_, n) => setSelectedNode(n)}
+            onNodeClick={(_, n) => {
+              if (suppressNodeSelectionRef.current) {
+                return;
+              }
+              setSelectedNode(n);
+            }}
             onPaneClick={() => setSelectedNode(null)}
-            nodeTypes={nodeTypes}
+            nodeTypes={FLOW_CANVAS_NODE_TYPES}
             panOnDrag={true}
             selectionOnDrag={false}
             selectionMode={SelectionMode.Partial}
@@ -766,18 +929,20 @@ function FlowBuilderCanvas() {
               >
                 <div className="h-14 bg-slate-900 flex items-center justify-between px-5 shrink-0">
                   <span className="text-xs font-black text-white uppercase tracking-widest">Edit Node Data</span>
-                  <button onClick={() => setSelectedNode(null)} className="text-slate-400 hover:text-white"><X size={18} /></button>
+                  <button onClick={handleCloseNodeEditor} className="text-slate-400 hover:text-white"><X size={18} /></button>
                 </div>
                 <div className="flex-1 overflow-y-auto custom-scrollbar relative">
                   <NodeEditor
                     node={selectedNode}
                     onUpdate={onUpdateNodeData}
-                    onClose={() => setSelectedNode(null)}
+                    onSaveAndClose={handleNodeSaveAndClose}
+                    onClose={handleCloseNodeEditor}
                     currentBotId={botId}
                     currentFlowId={currentFlowId}
                     flowOptions={flowSummaries}
                     botOptions={handoffBots}
                     flowOptionsByBot={flowOptionsByBot}
+                    leadForms={leadForms}
                   />
                   {!canEditProjectWorkflow ? (
                     <div className="absolute inset-0 bg-white/55 backdrop-blur-[1px]" />

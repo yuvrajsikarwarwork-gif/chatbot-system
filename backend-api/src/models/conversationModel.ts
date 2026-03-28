@@ -1,6 +1,44 @@
 import { query } from "../config/db";
 import { upsertContactWithIdentity } from "../services/contactIdentityService";
 
+let messageColumnSupport:
+  | {
+      senderType: boolean;
+      messageType: boolean;
+      status: boolean;
+      externalMessageId: boolean;
+      text: boolean;
+      message: boolean;
+      content: boolean;
+    }
+  | null = null;
+
+async function getMessageColumnSupport() {
+  if (messageColumnSupport) {
+    return messageColumnSupport;
+  }
+
+  const res = await query(
+    `SELECT column_name
+     FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND table_name = 'messages'`
+  );
+
+  const columns = new Set(res.rows.map((row: any) => String(row.column_name || "").trim()));
+  messageColumnSupport = {
+    senderType: columns.has("sender_type"),
+    messageType: columns.has("message_type"),
+    status: columns.has("status"),
+    externalMessageId: columns.has("external_message_id"),
+    text: columns.has("text"),
+    message: columns.has("message"),
+    content: columns.has("content"),
+  };
+
+  return messageColumnSupport;
+}
+
 type ConversationFilterInput = {
   workspaceId?: string | null;
   projectId?: string | null;
@@ -410,25 +448,34 @@ export async function findConversationDetailById(id: string) {
 }
 
 export async function findMessagesForConversation(conversationId: string) {
+  const support = await getMessageColumnSupport();
+  const senderTypeExpr = support.senderType ? "m.sender_type" : "NULL";
+  const messageTypeExpr = support.messageType ? "m.message_type" : "NULL";
+  const textExpr = support.text ? "m.text" : "NULL";
+  const messageExpr = support.message ? "m.message" : "NULL";
+  const statusExpr = support.status ? "m.status" : "NULL";
+  const externalMessageIdExpr = support.externalMessageId ? "m.external_message_id" : "NULL";
+  const contentExpr = support.content ? "m.content" : "'{}'::jsonb";
+
   const res = await query(
     `
     SELECT
       m.*,
-      COALESCE(m.sender_type, m.sender, 'user') AS sender_type_resolved,
-      COALESCE(m.message_type, m.content ->> 'type', 'text') AS message_type_resolved,
-      COALESCE(m.text, m.message, m.content ->> 'text') AS text_resolved,
-      COALESCE(m.status, m.content ->> 'deliveryStatus', '') AS delivery_status_resolved,
-      COALESCE(m.external_message_id, m.content ->> 'providerMessageId', '') AS provider_message_id_resolved,
-      COALESCE(m.content ->> 'deliveryKey', '') AS delivery_key,
-      COALESCE(m.content -> 'deliveryEvent', '{}'::jsonb) AS delivery_event,
+      COALESCE(${senderTypeExpr}, m.sender, 'user') AS sender_type_resolved,
+      COALESCE(${messageTypeExpr}, ${contentExpr} ->> 'type', 'text') AS message_type_resolved,
+      COALESCE(${textExpr}, ${messageExpr}, ${contentExpr} ->> 'text') AS text_resolved,
+      COALESCE(${statusExpr}, ${contentExpr} ->> 'deliveryStatus', '') AS delivery_status_resolved,
+      COALESCE(${externalMessageIdExpr}, ${contentExpr} ->> 'providerMessageId', '') AS provider_message_id_resolved,
+      COALESCE(${contentExpr} ->> 'deliveryKey', '') AS delivery_key,
+      COALESCE(${contentExpr} -> 'deliveryEvent', '{}'::jsonb) AS delivery_event,
       COALESCE(
-        m.content -> 'deliveryEvents',
+        ${contentExpr} -> 'deliveryEvents',
         CASE
-          WHEN m.content ? 'deliveryEvent' THEN jsonb_build_array(m.content -> 'deliveryEvent')
+          WHEN ${contentExpr} ? 'deliveryEvent' THEN jsonb_build_array(${contentExpr} -> 'deliveryEvent')
           ELSE '[]'::jsonb
         END
       ) AS delivery_events,
-      COALESCE(m.content ->> 'deliveryError', '') AS delivery_error
+      COALESCE(${contentExpr} ->> 'deliveryError', '') AS delivery_error
     FROM messages m
     WHERE m.conversation_id = $1
     ORDER BY m.created_at ASC, m.id ASC

@@ -190,6 +190,7 @@ export function buildResolvedAccessSnapshot(
     sections.permissions = { nav: true, page: true };
     sections.tickets = { nav: true, page: true };
     sections.support = { nav: false, page: true };
+    sections.billing = { nav: true, page: true };
     sections.plans = { nav: true, page: true };
     sections.logs = { nav: true, page: true };
     sections.system_settings = { nav: true, page: true };

@@ -34,7 +34,6 @@ const FLOW_NODE_TYPES = new Set([
   "knowledge_lookup",
   "condition",
   "api",
-  "lead_form",
   "save",
   "reminder",
   "delay",

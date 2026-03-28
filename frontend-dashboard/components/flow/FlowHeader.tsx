@@ -1,4 +1,3 @@
-import { useRouter } from "next/router";
 import { 
   PanelLeft, Download, Upload, Undo2, Redo2, 
   Trash2, Save, CheckCircle, LogOut, Clock, Copy, ClipboardPaste, Pencil
@@ -29,6 +28,7 @@ interface FlowHeaderProps {
   onPasteSelected: () => void;
   onDeleteFlow: () => void;
   onSave: () => void;
+  onCloseBuilder: () => void;
   isDirty: boolean;
   isSaving: boolean;
   canDeleteFlow: boolean;
@@ -41,25 +41,23 @@ export default function FlowHeader({
   flowSummaries, currentFlowId, currentFlowName, onSelectFlow, onCreateFlow, onEditFlowName,
   onDownloadSample, fileInputRef, onFileUpload,
   onUndo, onRedo, canUndo, canRedo,
-  onDeleteSelected, onCopySelected, onPasteSelected, onDeleteFlow, onSave, isDirty, isSaving, canDeleteFlow, canPasteSelection
+  onDeleteSelected, onCopySelected, onPasteSelected, onDeleteFlow, onSave, onCloseBuilder, isDirty, isSaving, canDeleteFlow, canPasteSelection
 }: FlowHeaderProps) {
-  const router = useRouter();
-
   return (
-    <div className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 shrink-0 z-50 relative shadow-sm">
+    <div className="h-16 bg-card border-b border-border flex items-center justify-between px-6 shrink-0 z-50 relative shadow-sm transition-colors duration-300">
       <div className="flex items-center gap-5">
-        <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-500 hover:text-blue-600 transition-all">
+        <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 bg-background border border-border rounded-lg text-muted hover:bg-primary-fade hover:text-primary hover:border-primary/30 transition-all">
           <PanelLeft size={20} />
         </button>
         <div className="flex flex-col">
-          <span className="font-black text-slate-900 text-[10px] uppercase tracking-widest leading-none">Workspace / {botName || "Unnamed Bot"}</span>
-          <span className="font-mono text-slate-400 text-[10px] tracking-tight">id: {botId}</span>
+          <span className="font-black text-foreground text-[10px] uppercase tracking-widest leading-none">Workspace / {botName || "Unnamed Bot"}</span>
+          <span className="font-mono text-muted text-[10px] tracking-tight">id: {botId}</span>
         </div>
         <div className="flex items-center gap-2">
           <select
             value={currentFlowId || ""}
             onChange={(event) => onSelectFlow(event.target.value)}
-            className="min-w-[220px] rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 outline-none"
+            className="min-w-[220px] rounded-xl border border-border bg-background px-3 py-2 text-xs font-semibold text-foreground outline-none"
           >
             <option value="">Select flow</option>
             {flowSummaries.map((flow) => (
@@ -71,21 +69,21 @@ export default function FlowHeader({
           {canEditWorkflow ? (
             <button
               onClick={onCreateFlow}
-              className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[10px] font-black uppercase tracking-wider text-slate-700 transition hover:bg-white"
+              className="rounded-xl border border-border bg-transparent px-3 py-2 text-[10px] font-black uppercase tracking-wider text-foreground transition hover:bg-primary-fade hover:text-primary hover:border-primary/30"
             >
               New Flow
             </button>
           ) : null}
           {currentFlowId ? (
-            <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-              <span className="max-w-[220px] truncate text-xs font-semibold text-slate-700">
+            <div className="flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2">
+              <span className="max-w-[220px] truncate text-xs font-semibold text-foreground">
                 {currentFlowName || "Untitled flow"}
               </span>
               {canEditWorkflow ? (
                 <button
                   type="button"
                   onClick={onEditFlowName}
-                  className="rounded-lg p-1 text-slate-500 transition hover:bg-white hover:text-blue-600"
+                  className="rounded-lg p-1 text-muted transition hover:bg-primary-fade hover:text-primary"
                   title="Edit flow name"
                 >
                   <Pencil size={14} />
@@ -97,35 +95,35 @@ export default function FlowHeader({
       </div>
       
       <div className="flex items-center gap-4">
-        <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200 shadow-inner">
-          <button onClick={onDownloadSample} className="p-2 hover:bg-white rounded-lg transition-all text-blue-600" title="Download Sample JSON">
+        <div className="flex items-center gap-1 bg-background p-1 rounded-xl border border-border">
+          <button onClick={onDownloadSample} className="p-2 hover:bg-primary-fade rounded-lg transition-all text-primary" title="Download Sample JSON">
             <Download size={16} />
           </button>
           {canEditWorkflow ? (
             <>
               <div className="w-px h-4 bg-slate-300 mx-1"></div>
               <input type="file" accept=".json" ref={fileInputRef} onChange={onFileUpload} className="hidden" />
-              <button onClick={() => fileInputRef.current?.click()} className="p-2 hover:bg-white rounded-lg transition-all text-blue-600" title="Import JSON Flow">
+              <button onClick={() => fileInputRef.current?.click()} className="p-2 hover:bg-primary-fade rounded-lg transition-all text-primary" title="Import JSON Flow">
                 <Upload size={16} />
               </button>
             </>
           ) : null}
         </div>
         {canEditWorkflow ? (
-          <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200 shadow-inner">
-            <button onClick={onUndo} disabled={!canUndo} className="p-2 hover:bg-white disabled:opacity-20 rounded-lg transition-all text-slate-600"><Undo2 size={16} /></button>
-            <button onClick={onRedo} disabled={!canRedo} className="p-2 hover:bg-white disabled:opacity-20 rounded-lg transition-all text-slate-600"><Redo2 size={16} /></button>
-            <div className="w-px h-4 bg-slate-300 mx-1"></div>
-            <button onClick={onCopySelected} className="p-2 hover:bg-white rounded-lg transition-all text-slate-600" title="Copy selected nodes"><Copy size={16} /></button>
-            <button onClick={onPasteSelected} disabled={!canPasteSelection} className="p-2 hover:bg-white disabled:opacity-20 rounded-lg transition-all text-slate-600" title="Paste copied nodes"><ClipboardPaste size={16} /></button>
+          <div className="flex items-center gap-1 bg-background p-1 rounded-xl border border-border">
+            <button onClick={onUndo} disabled={!canUndo} className="p-2 hover:bg-primary-fade disabled:opacity-20 rounded-lg transition-all text-muted"><Undo2 size={16} /></button>
+            <button onClick={onRedo} disabled={!canRedo} className="p-2 hover:bg-primary-fade disabled:opacity-20 rounded-lg transition-all text-muted"><Redo2 size={16} /></button>
+            <div className="w-px h-4 bg-border mx-1"></div>
+            <button onClick={onCopySelected} className="p-2 hover:bg-primary-fade rounded-lg transition-all text-muted" title="Copy selected nodes"><Copy size={16} /></button>
+            <button onClick={onPasteSelected} disabled={!canPasteSelection} className="p-2 hover:bg-primary-fade disabled:opacity-20 rounded-lg transition-all text-muted" title="Paste copied nodes"><ClipboardPaste size={16} /></button>
           </div>
         ) : null}
         {canEditWorkflow || (canDeleteFlow && canDeleteFlowAction) ? (
-          <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200 shadow-inner">
+          <div className="flex items-center gap-1 bg-background p-1 rounded-xl border border-border">
             {canEditWorkflow ? (
               <button
                 onClick={onDeleteSelected}
-                className="p-2.5 bg-red-50 text-red-500 rounded-lg hover:bg-red-500 hover:text-white transition-all border border-red-100 shadow-sm"
+                className="p-2.5 bg-transparent text-foreground rounded-lg hover:bg-primary-fade hover:text-primary transition-all border border-border"
                 title="Delete selected nodes or edges"
               >
                 <Trash2 size={18} />
@@ -134,7 +132,7 @@ export default function FlowHeader({
             {canDeleteFlow && canDeleteFlowAction ? (
               <button
                 onClick={onDeleteFlow}
-                className="px-3 py-2.5 bg-white text-slate-700 rounded-lg hover:bg-slate-900 hover:text-white transition-all border border-slate-200 shadow-sm text-[10px] font-black uppercase tracking-wider"
+                className="px-3 py-2.5 bg-transparent text-foreground rounded-lg hover:bg-primary-fade hover:text-primary transition-all border border-border text-[10px] font-black uppercase tracking-wider"
                 title="Delete current workflow"
               >
                 Remove Flow
@@ -143,7 +141,7 @@ export default function FlowHeader({
           </div>
         ) : null}
         {canEditWorkflow ? (
-          <button onClick={onSave} disabled={!isDirty || isSaving} className={`px-6 py-2.5 text-[11px] font-black rounded-xl flex items-center gap-2 transition-all duration-300 border shadow-lg uppercase tracking-wider ${isSaving ? "bg-blue-600 border-blue-500 text-white animate-pulse" : isDirty ? "bg-slate-900 border-slate-800 text-white hover:bg-black" : "bg-white border-slate-200 text-slate-400 cursor-default shadow-none"}`}>
+          <button onClick={onSave} disabled={!isDirty || isSaving} className={`px-6 py-2.5 text-[11px] font-black rounded-xl flex items-center gap-2 transition-all duration-300 border uppercase tracking-wider ${isSaving ? "bg-primary border-primary text-white animate-pulse" : isDirty ? "bg-primary border-primary text-white hover:opacity-95" : "bg-background border-border text-muted cursor-default shadow-none"}`}>
             {isSaving ? <Clock size={14} className="animate-spin" /> : isDirty ? <Save size={14} /> : <CheckCircle size={14} />}
             {isSaving ? "Saving..." : isDirty ? "Save Changes" : "Saved"}
           </button>
@@ -152,7 +150,13 @@ export default function FlowHeader({
             Read Only
           </div>
         )}
-        <button onClick={() => router.push('/bots')} className="p-2.5 bg-slate-50 text-slate-400 rounded-xl hover:bg-slate-200 transition-all border border-slate-200"><LogOut size={18} /></button>
+        <button
+          onClick={onCloseBuilder}
+          className="p-2.5 bg-transparent text-muted rounded-xl hover:bg-primary-fade hover:text-primary transition-all border border-border"
+          title="Save and close builder"
+        >
+          <LogOut size={18} />
+        </button>
       </div>
     </div>
   );

@@ -21,58 +21,58 @@ interface ChatWindowProps {
 
 const platformThemes: Record<string, any> = {
   whatsapp: {
-    containerBg: "bg-[linear-gradient(180deg,rgba(245,239,230,0.96),rgba(238,232,220,0.88))]",
+    containerBg: "bg-card",
     pattern: "url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png')",
-    headerBg: "bg-[rgba(248,250,252,0.9)]",
-    headerText: "text-slate-800",
-    headerSubText: "text-slate-500",
-    inputBg: "bg-[rgba(248,250,252,0.86)]",
-    buttonColor: "bg-emerald-600 hover:bg-emerald-700 text-white",
-    botNoticeBg: "bg-[#e1f5fe] border-blue-100 text-blue-800",
+    headerBg: "bg-background border-b border-border",
+    headerText: "text-foreground",
+    headerSubText: "text-muted",
+    inputBg: "bg-background border-t border-border",
+    buttonColor: "bg-primary hover:opacity-95 text-white",
+    botNoticeBg: "bg-primary-fade border border-primary/20 text-primary",
     has24HourRule: true,
   },
   instagram: {
-    containerBg: "bg-[linear-gradient(180deg,rgba(248,250,252,0.98),rgba(241,245,249,0.9))]",
+    containerBg: "bg-card",
     pattern: "none",
-    headerBg: "bg-gradient-to-r from-fuchsia-600 via-rose-500 to-orange-400",
-    headerText: "text-white",
-    headerSubText: "text-white/80",
-    inputBg: "bg-[rgba(255,255,255,0.9)]",
-    buttonColor: "bg-gradient-to-r from-fuchsia-600 to-rose-500 hover:opacity-90 text-white",
-    botNoticeBg: "bg-purple-50 border-purple-100 text-purple-800",
+    headerBg: "bg-background border-b border-border",
+    headerText: "text-foreground",
+    headerSubText: "text-muted",
+    inputBg: "bg-background border-t border-border",
+    buttonColor: "bg-primary hover:opacity-95 text-white",
+    botNoticeBg: "bg-primary-fade border border-primary/20 text-primary",
     has24HourRule: true,
   },
   facebook: {
-    containerBg: "bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.94))]",
+    containerBg: "bg-card",
     pattern: "none",
-    headerBg: "bg-[rgba(255,255,255,0.92)]",
-    headerText: "text-slate-800",
-    headerSubText: "text-slate-500",
-    inputBg: "bg-[rgba(248,250,252,0.86)]",
-    buttonColor: "bg-[#0084ff] hover:bg-[#0073e6] text-white",
-    botNoticeBg: "bg-blue-50 border-blue-100 text-blue-800",
+    headerBg: "bg-background border-b border-border",
+    headerText: "text-foreground",
+    headerSubText: "text-muted",
+    inputBg: "bg-background border-t border-border",
+    buttonColor: "bg-primary hover:opacity-95 text-white",
+    botNoticeBg: "bg-primary-fade border border-primary/20 text-primary",
     has24HourRule: true,
   },
   web: {
-    containerBg: "bg-[linear-gradient(180deg,rgba(248,250,252,0.98),rgba(241,245,249,0.92))]",
+    containerBg: "bg-card",
     pattern: "none",
-    headerBg: "bg-slate-900",
-    headerText: "text-white",
-    headerSubText: "text-gray-300",
-    inputBg: "bg-[rgba(255,255,255,0.88)]",
-    buttonColor: "bg-slate-800 hover:bg-slate-900 text-white",
-    botNoticeBg: "bg-slate-200 border-slate-300 text-slate-800",
+    headerBg: "bg-background border-b border-border",
+    headerText: "text-foreground",
+    headerSubText: "text-muted",
+    inputBg: "bg-background border-t border-border",
+    buttonColor: "bg-primary hover:opacity-95 text-white",
+    botNoticeBg: "bg-primary-fade border border-primary/20 text-primary",
     has24HourRule: false,
   },
   website: {
-    containerBg: "bg-[linear-gradient(180deg,rgba(248,250,252,0.98),rgba(241,245,249,0.92))]",
+    containerBg: "bg-card",
     pattern: "none",
-    headerBg: "bg-slate-900",
-    headerText: "text-white",
-    headerSubText: "text-gray-300",
-    inputBg: "bg-[rgba(255,255,255,0.88)]",
-    buttonColor: "bg-slate-800 hover:bg-slate-900 text-white",
-    botNoticeBg: "bg-slate-200 border-slate-300 text-slate-800",
+    headerBg: "bg-background border-b border-border",
+    headerText: "text-foreground",
+    headerSubText: "text-muted",
+    inputBg: "bg-background border-t border-border",
+    buttonColor: "bg-primary hover:opacity-95 text-white",
+    botNoticeBg: "bg-primary-fade border border-primary/20 text-primary",
     has24HourRule: false,
   },
 };
@@ -223,7 +223,7 @@ export default function ChatWindow({
         className={`${theme.headerBg} z-20 flex shrink-0 items-center justify-between px-5 py-4 transition-colors duration-300`}
       >
         <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-black/10 text-current backdrop-blur-sm">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-primary-fade text-current">
             <User size={24} className={`mt-2 ${theme.headerText}`} />
           </div>
           <div className="min-w-0">
@@ -232,7 +232,7 @@ export default function ChatWindow({
                 activeConversation.user_name ||
                 activeConversation.name ||
                 "User"}
-              <span className="ml-2 inline-flex max-w-[120px] truncate rounded-full bg-black/10 px-2 py-0.5 text-[10px] uppercase tracking-wider">
+              <span className="ml-2 inline-flex max-w-[120px] truncate rounded-full bg-primary-fade px-2 py-0.5 text-[10px] uppercase tracking-wider text-primary">
                 {platform}
               </span>
             </h3>
@@ -241,22 +241,22 @@ export default function ChatWindow({
             </p>
             <div className={`mt-1 flex flex-wrap gap-2 text-[10px] font-medium ${theme.headerSubText}`}>
               {showCampaign && activeConversation.campaign_name ? (
-                <span className="rounded-full bg-black/10 px-2 py-0.5">
+                <span className="rounded-full bg-primary-fade px-2 py-0.5 text-primary">
                   {activeConversation.campaign_name}
                 </span>
               ) : null}
               {showFlow && activeConversation.flow_name ? (
-                <span className="rounded-full bg-black/10 px-2 py-0.5">
+                <span className="rounded-full bg-primary-fade px-2 py-0.5 text-primary">
                   {activeConversation.flow_name}
                 </span>
               ) : null}
               {showList && activeConversation.list_name ? (
-                <span className="rounded-full bg-black/10 px-2 py-0.5">
+                <span className="rounded-full bg-primary-fade px-2 py-0.5 text-primary">
                   {activeConversation.list_name}
                 </span>
               ) : null}
               {activeConversation.platform_account_name ? (
-                <span className="rounded-full bg-black/10 px-2 py-0.5">
+                <span className="rounded-full bg-primary-fade px-2 py-0.5 text-primary">
                   {activeConversation.platform_account_name}
                 </span>
               ) : null}
@@ -267,7 +267,7 @@ export default function ChatWindow({
         {activeConversation.status === "agent_pending" && canResumeBot ? (
           <button
             onClick={handleResume}
-            className="ml-3 flex shrink-0 items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-xs font-bold text-white shadow-sm transition-all hover:bg-emerald-600 active:scale-95"
+            className="ml-3 flex shrink-0 items-center gap-2 rounded-full bg-primary px-4 py-2 text-xs font-bold text-white shadow-sm transition-all hover:opacity-95 active:scale-95"
           >
             <CheckCircle2 size={16} /> Resolve Issue
           </button>
@@ -275,7 +275,7 @@ export default function ChatWindow({
       </div>
 
       <div
-        className="relative flex-1 overflow-hidden transition-all duration-300"
+        className="relative flex-1 overflow-hidden transition-all duration-300 bg-card"
         style={{
           backgroundImage: theme.pattern,
           backgroundRepeat: "repeat",
@@ -306,7 +306,7 @@ export default function ChatWindow({
                     type="button"
                     disabled={isSending}
                     onClick={() => handleQuickReply(reply)}
-                    className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:border-teal-300 disabled:opacity-50"
+                    className="rounded-full border border-border bg-transparent px-3 py-1.5 text-xs font-semibold text-foreground shadow-sm transition hover:bg-primary-fade hover:text-primary hover:border-primary/30 disabled:opacity-50"
                   >
                     {reply}
                   </button>
@@ -323,7 +323,7 @@ export default function ChatWindow({
                     }
                   }}
                   placeholder={`Reply to ${platform} message...`}
-                  className="min-h-[48px] max-h-[120px] flex-1 resize-none rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm transition-all placeholder:text-slate-400 focus:border-teal-400 focus:outline-none"
+                  className="min-h-[48px] max-h-[120px] flex-1 resize-none rounded-2xl border border-border bg-card px-4 py-3 text-sm text-foreground shadow-sm transition-all placeholder:text-muted focus:border-primary focus:outline-none"
                   rows={1}
                 />
                 <input
@@ -344,7 +344,7 @@ export default function ChatWindow({
                   type="button"
                   disabled={isSending}
                   onClick={() => imageInputRef.current?.click()}
-                  className="flex h-[48px] w-[48px] shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-white p-3 text-slate-700 shadow-sm transition-all hover:border-teal-300 disabled:opacity-50"
+                  className="flex h-[48px] w-[48px] shrink-0 items-center justify-center rounded-2xl border border-border bg-transparent p-3 text-foreground shadow-sm transition-all hover:bg-primary-fade hover:text-primary hover:border-primary/30 disabled:opacity-50"
                   title="Upload image"
                 >
                   <ImagePlus size={18} />
@@ -353,7 +353,7 @@ export default function ChatWindow({
                   type="button"
                   disabled={isSending}
                   onClick={() => fileInputRef.current?.click()}
-                  className="flex h-[48px] w-[48px] shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-white p-3 text-slate-700 shadow-sm transition-all hover:border-teal-300 disabled:opacity-50"
+                  className="flex h-[48px] w-[48px] shrink-0 items-center justify-center rounded-2xl border border-border bg-transparent p-3 text-foreground shadow-sm transition-all hover:bg-primary-fade hover:text-primary hover:border-primary/30 disabled:opacity-50"
                   title="Upload file"
                 >
                   <Paperclip size={18} />
@@ -362,7 +362,7 @@ export default function ChatWindow({
                   <button
                     type="button"
                     onClick={() => setIsTemplateModalOpen(true)}
-                    className="flex h-[48px] w-[48px] shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-white p-3 text-slate-700 shadow-sm transition-all hover:border-teal-300"
+                    className="flex h-[48px] w-[48px] shrink-0 items-center justify-center rounded-2xl border border-border bg-transparent p-3 text-foreground shadow-sm transition-all hover:bg-primary-fade hover:text-primary hover:border-primary/30"
                     title="Send approved template"
                   >
                     <FolderOpen size={18} />
@@ -371,7 +371,7 @@ export default function ChatWindow({
                 <button
                   disabled={isSending || !inputValue.trim()}
                   onClick={handleSend}
-                  className={`${theme.buttonColor} flex h-[48px] w-[48px] shrink-0 items-center justify-center rounded-2xl p-3 shadow-sm transition-all disabled:bg-slate-400 disabled:opacity-50`}
+                  className={`${theme.buttonColor} flex h-[48px] w-[48px] shrink-0 items-center justify-center rounded-2xl p-3 shadow-sm transition-all disabled:bg-muted disabled:opacity-50`}
                 >
                   {isSending ? (
                     <Loader2 size={18} className="animate-spin text-white" />
@@ -382,16 +382,16 @@ export default function ChatWindow({
               </div>
             </div>
           ) : (
-            <div className="flex items-center justify-between rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex items-center justify-between rounded-3xl border border-border bg-card p-4 shadow-sm">
               <div className="min-w-0 pr-3">
-                <p className="text-sm font-bold text-slate-800">24-Hour Window Closed</p>
-                <p className="mt-0.5 text-xs text-slate-500">
+                <p className="text-sm font-bold text-foreground">24-Hour Window Closed</p>
+                <p className="mt-0.5 text-xs text-muted">
                   Meta requires a pre-approved template to resume contact.
                 </p>
               </div>
               <button
                 onClick={() => setIsTemplateModalOpen(true)}
-                className="flex shrink-0 items-center gap-2 rounded-2xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-blue-700"
+                className="flex shrink-0 items-center gap-2 rounded-2xl bg-primary px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:opacity-95"
               >
                 <FolderOpen size={16} /> Send Template
               </button>

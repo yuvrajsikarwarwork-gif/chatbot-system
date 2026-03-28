@@ -11,6 +11,7 @@ export const env = {
   PORT: readEnv("PORT", "4000"),
   DB_URL: readEnv("DB_URL"),
   REDIS_URL: readEnv("REDIS_URL"),
+  INTERNAL_ENGINE_SECRET: readEnv("INTERNAL_ENGINE_SECRET"),
   JWT_SECRET: readEnv("JWT_SECRET", "secret"),
   PUBLIC_API_BASE_URL: readEnv("PUBLIC_API_BASE_URL"),
   PUBLIC_APP_BASE_URL: readEnv("PUBLIC_APP_BASE_URL", "http://localhost:3000"),

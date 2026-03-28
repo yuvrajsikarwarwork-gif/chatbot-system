@@ -8,6 +8,7 @@ interface LeadFilters {
   entryPointId?: string;
   flowId?: string;
   listId?: string;
+  leadFormId?: string;
   platform?: string;
   status?: string;
   botId?: string;
@@ -64,6 +65,11 @@ export async function findLeadsByUser(userId: string, filters: LeadFilters) {
     where.push(`l.list_id = $${params.length}`);
   }
 
+  if (filters.leadFormId) {
+    params.push(filters.leadFormId);
+    where.push(`l.lead_form_id = $${params.length}`);
+  }
+
   if (filters.platform) {
     params.push(filters.platform);
     where.push(`l.platform = $${params.length}`);
@@ -83,6 +89,7 @@ export async function findLeadsByUser(userId: string, filters: LeadFilters) {
     params.push(`%${filters.search}%`);
     where.push(
       `(COALESCE(l.name, '') ILIKE $${params.length}
+        OR COALESCE(l.company_name, '') ILIKE $${params.length}
         OR COALESCE(l.phone, '') ILIKE $${params.length}
         OR COALESCE(l.email, '') ILIKE $${params.length}
         OR COALESCE(c.name, '') ILIKE $${params.length}
@@ -101,6 +108,7 @@ export async function findLeadsByUser(userId: string, filters: LeadFilters) {
        ep.name AS entry_point_name,
        f.flow_name,
        ls.name AS list_name,
+       lf.name AS lead_form_name,
        ct.platform_user_id,
        ct.name AS contact_name
      FROM leads l
@@ -110,6 +118,7 @@ export async function findLeadsByUser(userId: string, filters: LeadFilters) {
      LEFT JOIN entry_points ep ON ep.id = l.entry_point_id
      LEFT JOIN flows f ON f.id = l.flow_id
      LEFT JOIN lists ls ON ls.id = l.list_id
+     LEFT JOIN lead_forms lf ON lf.id = l.lead_form_id
      LEFT JOIN contacts ct ON ct.id = l.contact_id
      WHERE l.deleted_at IS NULL
        AND ${where.join(" AND ")}
@@ -130,7 +139,8 @@ export async function findLeadById(id: string, userId: string) {
        cc.name AS channel_name,
        ep.name AS entry_point_name,
        f.flow_name,
-       ls.name AS list_name
+       ls.name AS list_name,
+       lf.name AS lead_form_name
      FROM leads l
      LEFT JOIN campaigns c ON c.id = l.campaign_id
      LEFT JOIN bots b ON b.id = l.bot_id
@@ -138,6 +148,7 @@ export async function findLeadById(id: string, userId: string) {
      LEFT JOIN entry_points ep ON ep.id = l.entry_point_id
      LEFT JOIN flows f ON f.id = l.flow_id
      LEFT JOIN lists ls ON ls.id = l.list_id
+     LEFT JOIN lead_forms lf ON lf.id = l.lead_form_id
      WHERE l.id = $1
        AND l.deleted_at IS NULL
        AND (

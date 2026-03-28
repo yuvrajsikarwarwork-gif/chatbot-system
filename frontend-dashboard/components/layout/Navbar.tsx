@@ -293,13 +293,13 @@ export default function Navbar() {
     (isPlatformOperator ? "Platform" : "Workspace");
 
   return (
-    <nav className="sticky top-0 z-40 flex min-h-[5rem] items-center justify-between rounded-[1.75rem] border border-[var(--glass-border)] bg-[var(--glass-surface)] px-4 shadow-[var(--shadow-soft)] backdrop-blur-2xl md:px-6">
+    <nav className="sticky top-0 z-40 flex min-h-[5rem] items-center justify-between rounded-[1.75rem] border border-border bg-card px-4 shadow-[0_18px_40px_rgba(0,0,0,0.06)] transition-colors duration-300 md:px-6">
       <div className="flex min-w-0 items-center gap-4">
         <div className="min-w-0">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.28em] text-[var(--muted)]">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.28em] text-muted">
             {topRibbonLabel}
           </div>
-          <div className="truncate bg-[linear-gradient(180deg,var(--text),color-mix(in_srgb,var(--text)_70%,var(--accent)_30%))] bg-clip-text text-xl font-black tracking-[-0.03em] text-transparent md:text-2xl">
+          <div className="truncate text-xl font-black tracking-[-0.03em] text-foreground md:text-2xl">
             {routeLabel}
           </div>
         </div>
@@ -310,7 +310,7 @@ export default function Navbar() {
           <select
             value={activeWorkspace?.workspace_id || activeWorkspaceMemberships[0]?.workspace_id || ""}
             onChange={(event) => handleWorkspaceChange(event.target.value)}
-            className="max-w-[14rem] rounded-full border border-[var(--glass-border)] bg-[var(--glass-surface-strong)] px-3 py-2 text-xs font-medium text-[var(--text)] shadow-[inset_0_1px_0_rgba(255,255,255,0.32)] outline-none"
+            className="max-w-[14rem] rounded-full border border-border bg-background px-3 py-2 text-xs font-medium text-foreground outline-none transition-colors duration-300"
           >
             {activeWorkspaceMemberships.map((membership) => (
                 <option key={membership.workspace_id} value={membership.workspace_id}>
@@ -324,7 +324,7 @@ export default function Navbar() {
           <select
             value={activeProject?.id || projects.find((project) => project.is_default)?.id || projects[0]?.id || ""}
             onChange={(event) => handleProjectChange(event.target.value)}
-            className="max-w-[14rem] rounded-full border border-[var(--glass-border)] bg-[var(--glass-surface-strong)] px-3 py-2 text-xs font-medium text-[var(--text)] shadow-[inset_0_1px_0_rgba(255,255,255,0.32)] outline-none"
+            className="max-w-[14rem] rounded-full border border-border bg-background px-3 py-2 text-xs font-medium text-foreground outline-none transition-colors duration-300"
           >
             {projects.map((project) => (
               <option key={project.id} value={project.id}>
@@ -338,7 +338,7 @@ export default function Navbar() {
           <select
             value={selectedBotId || bots[0]?.id || ""}
             onChange={(event) => setSelectedBotId(event.target.value || null)}
-            className="max-w-[14rem] rounded-full border border-[var(--glass-border)] bg-[var(--glass-surface-strong)] px-3 py-2 text-xs font-medium text-[var(--text)] shadow-[inset_0_1px_0_rgba(255,255,255,0.32)] outline-none"
+            className="max-w-[14rem] rounded-full border border-border bg-background px-3 py-2 text-xs font-medium text-foreground outline-none transition-colors duration-300"
           >
             {bots.length === 0 ? (
               <option value="">No bots</option>
@@ -356,9 +356,9 @@ export default function Navbar() {
           <button
             type="button"
             onClick={() => setProfileOpen((value) => !value)}
-            className="flex items-center gap-2 rounded-full border border-[var(--glass-border)] bg-[var(--glass-surface-strong)] px-2 py-2 text-xs font-semibold text-[var(--text)] shadow-[var(--shadow-soft)] transition duration-300 hover:-translate-y-0.5"
+            className="flex items-center gap-2 rounded-full border border-border bg-background px-2 py-2 text-xs font-semibold text-foreground transition duration-300 hover:bg-primary-fade hover:text-primary hover:border-primary/30"
           >
-            <div className="flex h-8 w-8 items-center justify-center rounded-full border border-[var(--glass-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.85),rgba(224,231,255,0.5))] text-xs font-semibold text-slate-900 shadow-[0_12px_28px_rgba(99,102,241,0.18)]">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full border border-primary/20 bg-primary-fade text-xs font-semibold text-primary">
               {(user?.name || "YS")
                 .split(" ")
                 .map((part) => part[0])
@@ -366,32 +366,32 @@ export default function Navbar() {
                 .slice(0, 2)
                 .toUpperCase()}
             </div>
-            <ChevronDown size={14} className="text-[var(--muted)]" />
+            <ChevronDown size={14} className="text-muted" />
           </button>
 
           {profileOpen ? (
-            <div className="absolute right-0 top-14 z-50 w-[340px] overflow-hidden rounded-[1.5rem] border border-[var(--glass-border)] bg-[var(--glass-surface)] p-4 shadow-[var(--shadow-glass)] backdrop-blur-2xl">
-              <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-[radial-gradient(circle_at_top_right,rgba(99,102,241,0.2),transparent_58%)]" />
+            <div className="absolute right-0 top-14 z-50 w-[340px] overflow-hidden rounded-[1.5rem] border border-border bg-card p-4 shadow-[0_24px_60px_rgba(0,0,0,0.12)] transition-colors duration-300">
+              <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-[radial-gradient(circle_at_top_right,var(--primary-fade),transparent_58%)]" />
               <div className="flex items-start justify-between gap-3">
                 <div className="relative">
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--muted)]">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted">
                     Profile
                   </div>
-                  <div className="mt-2 text-lg font-black tracking-[-0.02em] text-[var(--text)]">
+                  <div className="mt-2 text-lg font-black tracking-[-0.02em] text-foreground">
                     {user?.name || "Unnamed User"}
                   </div>
-                  <div className="mt-1 text-sm text-[var(--muted)]">{user?.email || "No email"}</div>
+                  <div className="mt-1 text-sm text-muted">{user?.email || "No email"}</div>
                 </div>
                 <button
                   type="button"
                   onClick={() => setEditingProfile((value) => !value)}
-                  className="relative rounded-xl border border-[var(--glass-border)] bg-[var(--glass-surface-strong)] p-2 text-[var(--text)] shadow-[inset_0_1px_0_rgba(255,255,255,0.28)] transition hover:border-[var(--line-strong)]"
+                  className="relative rounded-xl border border-border bg-background p-2 text-foreground transition hover:bg-primary-fade hover:text-primary hover:border-primary/30"
                 >
                   <PencilLine size={14} />
                 </button>
               </div>
 
-              <div className="mt-4 space-y-3 rounded-[1.15rem] border border-[var(--glass-border)] bg-[var(--glass-surface-strong)] p-4 text-sm text-[var(--text)] shadow-[inset_0_1px_0_rgba(255,255,255,0.3)]">
+              <div className="mt-4 space-y-3 rounded-[1.15rem] border border-border bg-background p-4 text-sm text-foreground">
                 <div className="flex items-center gap-2"><ShieldCheck size={14} /> Role: {workspaceRoleLabel}</div>
                 <div className="flex items-center gap-2"><Mail size={14} /> Email: {user?.email || "n/a"}</div>
                 <div className="flex items-center gap-2"><User size={14} /> Workspace: {isPlatformRoute ? "Platform scope" : workspaceLabel}</div>
@@ -401,7 +401,7 @@ export default function Navbar() {
               {editingProfile ? (
                 <div className="mt-4 space-y-3">
                   <input
-                    className="w-full rounded-2xl border border-[var(--glass-border)] bg-[var(--glass-surface-strong)] px-4 py-3 text-sm text-[var(--text)] shadow-[inset_0_1px_0_rgba(255,255,255,0.28)] outline-none"
+                    className="w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none transition-colors duration-300"
                     value={profileName}
                     onChange={(event) => setProfileName(event.target.value)}
                     placeholder="Your name"
@@ -425,7 +425,7 @@ export default function Navbar() {
                         setProfileSaving(false);
                       }
                     }}
-                    className="w-full rounded-2xl bg-[linear-gradient(135deg,var(--accent),var(--accent-strong))] px-4 py-3 text-[11px] font-black uppercase tracking-[0.18em] text-white shadow-[0_18px_30px_var(--accent-glow)] transition duration-300 hover:-translate-y-0.5 disabled:opacity-60"
+                    className="w-full rounded-2xl bg-primary px-4 py-3 text-[11px] font-black uppercase tracking-[0.18em] text-white transition duration-300 hover:opacity-95 disabled:opacity-60"
                   >
                     {profileSaving ? "Saving..." : "Save profile"}
                   </button>
@@ -435,7 +435,7 @@ export default function Navbar() {
               <button
                 type="button"
                 onClick={handleLogout}
-                className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl border border-[var(--glass-border)] bg-[var(--glass-surface-strong)] px-4 py-3 text-[11px] font-black uppercase tracking-[0.18em] text-[var(--text)] transition duration-300 hover:border-[var(--line-strong)] hover:bg-[var(--surface-muted)]"
+                className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl border border-border bg-transparent px-4 py-3 text-[11px] font-black uppercase tracking-[0.18em] text-foreground transition duration-300 hover:bg-primary-fade hover:text-primary hover:border-primary/30"
               >
                 <LogOut size={14} />
                 Logout

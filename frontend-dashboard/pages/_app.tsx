@@ -174,7 +174,11 @@ export default function App({ Component, pageProps }: AppProps) {
   return (
     <>
       <SupportModeBanner />
-      <div className={supportModeActive ? "pt-16" : ""}>
+      <div
+        className={`bg-background text-foreground transition-colors duration-300 ${
+          supportModeActive ? "pt-16" : ""
+        }`}
+      >
         <Component {...pageProps} />
       </div>
       <UiOverlay />
