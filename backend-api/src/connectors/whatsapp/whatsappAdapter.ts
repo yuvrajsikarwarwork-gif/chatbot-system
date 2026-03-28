@@ -78,6 +78,7 @@ const buildWhatsAppPayload = (toPhone: string, msg: GenericMessage) => {
       messaging_product: "whatsapp",
       recipient_type: "individual",
       to: toPhone,
+      ...(msg.providerOpaqueRef ? { biz_opaque_callback_data: msg.providerOpaqueRef } : {}),
       type: "interactive",
       interactive: {
         type: "list",
@@ -107,6 +108,7 @@ const buildWhatsAppPayload = (toPhone: string, msg: GenericMessage) => {
       messaging_product: "whatsapp",
       recipient_type: "individual",
       to: toPhone,
+      ...(msg.providerOpaqueRef ? { biz_opaque_callback_data: msg.providerOpaqueRef } : {}),
       type: "interactive",
       interactive: {
         type: "button",
@@ -175,6 +177,7 @@ const buildWhatsAppPayload = (toPhone: string, msg: GenericMessage) => {
       messaging_product: "whatsapp",
       recipient_type: "individual",
       to: toPhone,
+      ...(msg.providerOpaqueRef ? { biz_opaque_callback_data: msg.providerOpaqueRef } : {}),
       type: "template",
       template: {
         name: msg.templateName,
@@ -191,6 +194,7 @@ const buildWhatsAppPayload = (toPhone: string, msg: GenericMessage) => {
       messaging_product: "whatsapp",
       recipient_type: "individual",
       to: toPhone,
+      ...(msg.providerOpaqueRef ? { biz_opaque_callback_data: msg.providerOpaqueRef } : {}),
       type: "image",
       image: {
         link: normalizedMediaUrl,
@@ -204,6 +208,7 @@ const buildWhatsAppPayload = (toPhone: string, msg: GenericMessage) => {
       messaging_product: "whatsapp",
       recipient_type: "individual",
       to: toPhone,
+      ...(msg.providerOpaqueRef ? { biz_opaque_callback_data: msg.providerOpaqueRef } : {}),
       type: "video",
       video: {
         link: normalizedMediaUrl,
@@ -217,6 +222,7 @@ const buildWhatsAppPayload = (toPhone: string, msg: GenericMessage) => {
       messaging_product: "whatsapp",
       recipient_type: "individual",
       to: toPhone,
+      ...(msg.providerOpaqueRef ? { biz_opaque_callback_data: msg.providerOpaqueRef } : {}),
       type: "audio",
       audio: {
         link: normalizedMediaUrl,
@@ -229,6 +235,7 @@ const buildWhatsAppPayload = (toPhone: string, msg: GenericMessage) => {
       messaging_product: "whatsapp",
       recipient_type: "individual",
       to: toPhone,
+      ...(msg.providerOpaqueRef ? { biz_opaque_callback_data: msg.providerOpaqueRef } : {}),
       type: "document",
       document: {
         link: normalizedMediaUrl,
@@ -297,7 +304,13 @@ export const sendWhatsAppAdapter = async (
   }
 
   if (msg.type === "text" || msg.type === "system") {
-    const response = await sendWhatsAppMessage(phoneNumberId, accessToken, toPhone, msg.text || "");
+    const response = await sendWhatsAppMessage(
+      phoneNumberId,
+      accessToken,
+      toPhone,
+      msg.text || "",
+      msg.providerOpaqueRef || null
+    );
     return {
       providerMessageId: response?.messages?.[0]?.id || null,
       status: "sent",
@@ -310,7 +323,8 @@ export const sendWhatsAppAdapter = async (
       phoneNumberId,
       accessToken,
       toPhone,
-      msg.text || `[${msg.type}]`
+      msg.text || `[${msg.type}]`,
+      msg.providerOpaqueRef || null
     );
     return {
       providerMessageId: response?.messages?.[0]?.id || null,

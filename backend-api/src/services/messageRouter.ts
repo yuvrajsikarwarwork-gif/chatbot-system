@@ -1,4 +1,5 @@
 import { query } from "../config/db";
+import crypto from "crypto";
 import { sendWebAdapter } from "../connectors/website/websiteAdapter";
 import { sendEmailAdapter } from "../connectors/email/emailAdapter";
 import { sendWhatsAppAdapter } from "../connectors/whatsapp/whatsappAdapter";
@@ -299,11 +300,231 @@ export interface GenericMessage {
   mediaUrl?: string;
   pricingCategory?: string | null;
   entryKind?: string | null;
+  providerOpaqueRef?: string | null;
 }
 
 export interface OutboundDeliveryResult {
   providerMessageId?: string | null;
   status?: string | null;
+}
+
+const OUTBOUND_IDEMPOTENCY_WINDOW_SECONDS = 300;
+
+function buildOutboundDeliveryKey(conversationId: string, message: GenericMessage) {
+  const normalized = JSON.stringify({
+    conversationId,
+    type: message.type,
+    text: message.text || null,
+    buttons: message.buttons || null,
+    buttonText: message.buttonText || null,
+    sections: message.sections || null,
+    templateName: message.templateName || null,
+    languageCode: message.languageCode || null,
+    templateContent: message.templateContent || null,
+    templateVariables: message.templateVariables || null,
+    templateParameters: message.templateParameters || null,
+    templateComponents: message.templateComponents || null,
+    metaTemplateId: message.metaTemplateId || null,
+    metaTemplateName: message.metaTemplateName || null,
+    mediaUrl: message.mediaUrl || null,
+    pricingCategory: message.pricingCategory || null,
+    entryKind: message.entryKind || null,
+  });
+
+  return crypto.createHash("sha256").update(normalized).digest("hex");
+}
+
+async function reserveOutboundMessage(input: {
+  botId: string;
+  workspaceId?: string | null;
+  projectId?: string | null;
+  conversationId: string;
+  normalizedChannel: string;
+  platformAccountId?: string | null;
+  platformUserId: string;
+  message: GenericMessage;
+  support: { externalMessageId: boolean; status: boolean; statusUpdatedAt: boolean };
+}) {
+  const deliveryKey = buildOutboundDeliveryKey(input.conversationId, input.message);
+  const duplicateSelect = [
+    "id",
+    ...(input.support.externalMessageId ? ["external_message_id"] : ["NULL AS external_message_id"]),
+    ...(input.support.status ? ["status"] : ["NULL AS status"]),
+  ];
+  const duplicateStatusFilter = input.support.status
+    ? "AND COALESCE(status, 'sent') <> 'failed'"
+    : "";
+  const duplicateRes = await query(
+    `SELECT ${duplicateSelect.join(", ")}
+     FROM messages
+     WHERE conversation_id = $1
+       AND sender = 'bot'
+       AND content->>'deliveryKey' = $2
+       ${duplicateStatusFilter}
+       AND created_at >= NOW() - ($3 * INTERVAL '1 second')
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    [input.conversationId, deliveryKey, OUTBOUND_IDEMPOTENCY_WINDOW_SECONDS]
+  );
+
+  const duplicate = duplicateRes.rows[0];
+  if (duplicate) {
+    return {
+      duplicate: true,
+      messageId: String(duplicate.id),
+      providerMessageId: duplicate.external_message_id || null,
+      status: duplicate.status || "sent",
+      deliveryKey,
+    };
+  }
+
+  const contentPayload = {
+    ...input.message,
+    deliveryKey,
+    deliveryStatus: "sending",
+  };
+  const statusParamIndex =
+    input.support.externalMessageId && input.support.status
+      ? 13
+      : input.support.externalMessageId || input.support.status
+        ? 12
+        : null;
+  const columns = [
+    "bot_id",
+    "workspace_id",
+    "project_id",
+    "conversation_id",
+    "channel",
+    "sender",
+    "sender_type",
+    "platform",
+    "platform_account_id",
+    "platform_user_id",
+    "message_type",
+    "text",
+    "content",
+    ...(input.support.externalMessageId ? ["external_message_id"] : []),
+    ...(input.support.status ? ["status"] : []),
+    ...(input.support.statusUpdatedAt ? ["status_updated_at"] : []),
+  ];
+  const values = [
+    "$1",
+    "$2",
+    "$3",
+    "$4",
+    "$5",
+    "'bot'",
+    "'bot'",
+    "$6",
+    "$7",
+    "$8",
+    "$9",
+    "$10",
+    "$11::jsonb",
+    ...(input.support.externalMessageId ? ["$12"] : []),
+    ...(input.support.status ? [`$${input.support.externalMessageId ? 13 : 12}`] : []),
+    ...(input.support.statusUpdatedAt
+      ? [
+          `CASE WHEN $${statusParamIndex} IS NULL THEN NULL ELSE NOW() END`,
+        ]
+      : []),
+  ];
+  const params = [
+    input.botId,
+    input.workspaceId || null,
+    input.projectId || null,
+    input.conversationId,
+    input.normalizedChannel,
+    input.normalizedChannel,
+    input.platformAccountId || null,
+    input.platformUserId,
+    input.message.type,
+    input.message.text || null,
+    JSON.stringify(contentPayload),
+    ...(input.support.externalMessageId ? [null] : []),
+    ...(input.support.status ? ["sending"] : []),
+  ];
+
+  const reserveRes = await query(
+    `INSERT INTO messages (${columns.join(", ")})
+     VALUES (${values.join(", ")})
+     RETURNING id`,
+    params
+  );
+
+  return {
+    duplicate: false,
+    messageId: String(reserveRes.rows[0]?.id),
+    providerMessageId: null,
+    status: "sending",
+    deliveryKey,
+  };
+}
+
+async function finalizeReservedOutboundMessage(input: {
+  messageId: string;
+  support: { externalMessageId: boolean; status: boolean; statusUpdatedAt: boolean };
+  deliveryResult: OutboundDeliveryResult;
+  message: GenericMessage;
+  deliveryKey: string;
+}) {
+  const support = input.support;
+  const assignments = [
+    "content = $2::jsonb",
+    ...(support.externalMessageId ? ["external_message_id = $3"] : []),
+    ...(support.status ? [`status = $${support.externalMessageId ? 4 : 3}`] : []),
+    ...(support.statusUpdatedAt
+      ? [`status_updated_at = CASE WHEN $${support.externalMessageId && support.status ? 4 : support.status ? 3 : 2} IS NULL THEN status_updated_at ELSE NOW() END`]
+      : []),
+  ];
+  const params = [
+    input.messageId,
+    JSON.stringify({
+      ...input.message,
+      deliveryKey: input.deliveryKey,
+      deliveryStatus: input.deliveryResult.status || "sent",
+      providerMessageId: input.deliveryResult.providerMessageId || null,
+    }),
+    ...(support.externalMessageId ? [input.deliveryResult.providerMessageId || null] : []),
+    ...(support.status ? [input.deliveryResult.status || "sent"] : []),
+  ];
+
+  await query(
+    `UPDATE messages
+     SET ${assignments.join(", ")}
+     WHERE id = $1`,
+    params
+  );
+}
+
+async function markReservedOutboundMessageFailed(input: {
+  messageId: string;
+  support: { externalMessageId: boolean; status: boolean; statusUpdatedAt: boolean };
+  message: GenericMessage;
+  deliveryKey: string;
+  errorMessage: string;
+}) {
+  const assignments = [
+    "content = $2::jsonb",
+    ...(input.support.status ? ["status = $3"] : []),
+    ...(input.support.statusUpdatedAt ? [`status_updated_at = NOW()`] : []),
+  ];
+  const params = [
+    input.messageId,
+    JSON.stringify({
+      ...input.message,
+      deliveryKey: input.deliveryKey,
+      deliveryStatus: "failed",
+      deliveryError: input.errorMessage,
+    }),
+    ...(input.support.status ? ["failed"] : []),
+  ];
+  await query(
+    `UPDATE messages
+     SET ${assignments.join(", ")}
+     WHERE id = $1`,
+    params
+  );
 }
 
 export const routeMessage = async (
@@ -527,6 +748,22 @@ export const routeMessage = async (
     providerMessageId: null,
     status: "sent",
   };
+  const support = await getMessageDeliveryColumnSupport();
+  const reservedMessage = await reserveOutboundMessage({
+    botId,
+    workspaceId: workspaceId || null,
+    projectId: projectId || null,
+    conversationId,
+    normalizedChannel,
+    platformAccountId: platformAccountId || null,
+    platformUserId,
+    message,
+    support,
+  });
+  if (reservedMessage.duplicate) {
+    return;
+  }
+  message.providerOpaqueRef = reservedMessage.deliveryKey;
   const pricingCategory =
     String(message.pricingCategory || "").trim().toLowerCase() ||
     (message.type === "template" ? "marketing" : normalizedChannel === "whatsapp" ? "service" : "");
@@ -535,42 +772,53 @@ export const routeMessage = async (
       ? undefined
       : 0;
 
-  if (normalizedChannel === "whatsapp") {
-    const walletChargeCheck =
-      estimatedAmount !== undefined
-        ? {
-            workspaceId,
-            platform: normalizedChannel,
-            amount: estimatedAmount,
-          }
-        : {
-            workspaceId,
-            platform: normalizedChannel,
-          };
-    await assertWalletCanCharge(walletChargeCheck);
-    deliveryResult = await sendWhatsAppAdapter(
-      botId,
-      platformUserId,
+  try {
+    if (normalizedChannel === "whatsapp") {
+      const walletChargeCheck =
+        estimatedAmount !== undefined
+          ? {
+              workspaceId,
+              platform: normalizedChannel,
+              amount: estimatedAmount,
+            }
+          : {
+              workspaceId,
+              platform: normalizedChannel,
+            };
+      await assertWalletCanCharge(walletChargeCheck);
+      deliveryResult = await sendWhatsAppAdapter(
+        botId,
+        platformUserId,
+        message,
+        channelId,
+        platformAccountId
+      );
+    } else if (normalizedChannel === "website") {
+      deliveryResult = await sendWebAdapter(botId, platformUserId, message, io, platformAccountId || null);
+    } else if (normalizedChannel === "email") {
+      deliveryResult = await sendEmailAdapter(
+        botId,
+        platformUserId,
+        message,
+        platformAccountId || null,
+        workspaceId || null,
+        projectId || null
+      );
+    } else {
+      throw {
+        status: 400,
+        message: `Unsupported channel '${normalizedChannel}' for conversation replies`,
+      };
+    }
+  } catch (error: any) {
+    await markReservedOutboundMessageFailed({
+      messageId: reservedMessage.messageId,
+      support,
       message,
-      channelId,
-      platformAccountId
-    );
-  } else if (normalizedChannel === "website") {
-    deliveryResult = await sendWebAdapter(botId, platformUserId, message, io, platformAccountId || null);
-  } else if (normalizedChannel === "email") {
-    deliveryResult = await sendEmailAdapter(
-      botId,
-      platformUserId,
-      message,
-      platformAccountId || null,
-      workspaceId || null,
-      projectId || null
-    );
-  } else {
-    throw {
-      status: 400,
-      message: `Unsupported channel '${normalizedChannel}' for conversation replies`,
-    };
+      deliveryKey: reservedMessage.deliveryKey,
+      errorMessage: String(error?.message || error || "Outbound delivery failed"),
+    });
+    throw error;
   }
 
   await recordOutboundMessageCharge({
@@ -606,74 +854,13 @@ export const routeMessage = async (
     });
   }
 
-  const support = await getMessageDeliveryColumnSupport();
-  const statusParamIndex =
-    support.externalMessageId && support.status
-      ? 13
-      : support.externalMessageId || support.status
-        ? 12
-        : null;
-  const columns = [
-    "bot_id",
-    "workspace_id",
-    "project_id",
-    "conversation_id",
-    "channel",
-    "sender",
-    "sender_type",
-    "platform",
-    "platform_account_id",
-    "platform_user_id",
-    "message_type",
-    "text",
-    "content",
-    ...(support.externalMessageId ? ["external_message_id"] : []),
-    ...(support.status ? ["status"] : []),
-    ...(support.statusUpdatedAt ? ["status_updated_at"] : []),
-  ];
-  const values = [
-    "$1",
-    "$2",
-    "$3",
-    "$4",
-    "$5",
-    "'bot'",
-    "'bot'",
-    "$6",
-    "$7",
-    "$8",
-    "$9",
-    "$10",
-    "$11::jsonb",
-    ...(support.externalMessageId ? ["$12"] : []),
-    ...(support.status ? [`$${support.externalMessageId ? 13 : 12}`] : []),
-    ...(support.statusUpdatedAt
-      ? [
-          `CASE WHEN $${statusParamIndex} IS NULL THEN NULL ELSE NOW() END`,
-        ]
-      : []),
-  ];
-  const params = [
-    botId,
-    workspaceId || null,
-    projectId || null,
-    conversationId,
-    normalizedChannel,
-    normalizedChannel,
-    platformAccountId,
-    platformUserId,
-    message.type,
-    message.text || null,
-    JSON.stringify(message),
-    ...(support.externalMessageId ? [deliveryResult.providerMessageId || null] : []),
-    ...(support.status ? [deliveryResult.status || null] : []),
-  ];
-
-  await query(
-    `INSERT INTO messages (${columns.join(", ")})
-     VALUES (${values.join(", ")})`,
-    params
-  );
+  await finalizeReservedOutboundMessage({
+    messageId: reservedMessage.messageId,
+    support,
+    deliveryResult,
+    message,
+    deliveryKey: reservedMessage.deliveryKey,
+  });
 
   await query(
     `UPDATE conversations

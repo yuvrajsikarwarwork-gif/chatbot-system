@@ -12,7 +12,10 @@ import {
   findWebhookIntegration,
   getIntegrationVerifyToken,
 } from "../services/integrationService";
-import { updateMessageDeliveryStatusByExternalId } from "../models/messageModel";
+import {
+  updateMessageDeliveryStatusByExternalId,
+  updateMessageDeliveryStatusByOpaqueRef,
+} from "../models/messageModel";
 import { routeMessage } from "../services/messageRouter";
 import { decryptSecret } from "../utils/encryption";
 import { applyTemplateStatusUpdate } from "./templateController";
@@ -124,15 +127,28 @@ async function handleWhatsAppStatuses(req: Request, res: Response) {
   for (const statusRow of statuses) {
     const externalMessageId = String(statusRow?.id || "").trim();
     const deliveryStatus = String(statusRow?.status || "").trim().toLowerCase();
-    if (!externalMessageId || !deliveryStatus) {
+    const opaqueRef = String(statusRow?.biz_opaque_callback_data || "").trim();
+    if ((!externalMessageId && !opaqueRef) || !deliveryStatus) {
       continue;
     }
 
-    const updatedRows = await updateMessageDeliveryStatusByExternalId(
-      externalMessageId,
-      deliveryStatus,
-      statusRow
-    );
+    const updatedRowsByExternalId = externalMessageId
+      ? await updateMessageDeliveryStatusByExternalId(
+          externalMessageId,
+          deliveryStatus,
+          statusRow
+        )
+      : [];
+    const updatedRows =
+      updatedRowsByExternalId.length > 0
+        ? updatedRowsByExternalId
+        : opaqueRef
+          ? await updateMessageDeliveryStatusByOpaqueRef(
+              opaqueRef,
+              deliveryStatus,
+              statusRow
+            )
+          : [];
 
     for (const updated of updatedRows) {
       if (io && updated?.conversation_id) {

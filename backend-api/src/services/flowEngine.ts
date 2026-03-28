@@ -1,5 +1,5 @@
 import axios from "axios";
-import { query } from "../config/db";
+import { db, query } from "../config/db";
 import { resolveCampaignContext } from "./campaignContextService";
 import {
   LeadCaptureContextError,
@@ -21,8 +21,11 @@ import { retrieveKnowledgeForWorkspace } from "./ragService";
 import { normalizeWhatsAppPlatformUserId } from "./contactIdentityService";
 import { validateWorkspaceContext } from "./businessValidationService";
 import { findBotById } from "../models/botModel";
+import { fitSectionsToTokenBudget } from "../utils/tokenBudget";
 
 const MAX_RETRY_LIMIT = 3;
+const MAX_KNOWLEDGE_LOOKUP_TEXT_TOKENS = 3000;
+const MAX_KNOWLEDGE_LOOKUP_CHUNK_CHARS = 1500;
 
 const processingLocks: Set<string> = new Set();
 
@@ -278,6 +281,44 @@ const parseVariables = (value: any): Record<string, any> => {
   return {};
 };
 
+const truncateText = (value: string, maxChars: number) => {
+  const normalized = String(value || "");
+  if (normalized.length <= maxChars) {
+    return normalized;
+  }
+  return `${normalized.slice(0, Math.max(0, maxChars - 3))}...`;
+};
+
+const buildKnowledgeLookupText = (chunks: Array<{ content?: string | null }>) =>
+  fitSectionsToTokenBudget(
+    [
+      {
+        key: "knowledge_lookup",
+        text: chunks
+          .map((chunk) => truncateText(String(chunk?.content || ""), MAX_KNOWLEDGE_LOOKUP_CHUNK_CHARS))
+          .filter(Boolean)
+          .join("\n\n"),
+      },
+    ],
+    MAX_KNOWLEDGE_LOOKUP_TEXT_TOKENS
+  ).sections[0]?.text || "";
+
+const withConversationProcessingLock = async <T>(
+  conversationId: string,
+  work: () => Promise<T>
+) => {
+  const client = await db.connect();
+  try {
+    await client.query("SELECT pg_advisory_lock(hashtext($1))", [String(conversationId)]);
+    return await work();
+  } finally {
+    try {
+      await client.query("SELECT pg_advisory_unlock(hashtext($1))", [String(conversationId)]);
+    } catch {}
+    client.release();
+  }
+};
+
 const parseJsonObject = (value: any): Record<string, any> => {
   if (!value) {
     return {};
@@ -472,60 +513,62 @@ export const handleWaitingNodeTimeout = async (input: {
 }) => {
   const timeoutFallback = String(input.timeoutFallback || "").trim();
 
-  if (!(await isConversationWaitingOnNode(input.conversationId, input.waitingNodeId))) {
-    return;
-  }
-
-  await cancelPendingJobsByConversation(input.conversationId, FLOW_WAIT_JOB_TYPES);
-  clearUserTimers(input.botId, input.platformUserId);
-
-  const conversationRes = await query(
-    `SELECT flow_id, project_id
-     FROM conversations
-     WHERE id = $1`,
-    [input.conversationId]
-  );
-  const conversation = conversationRes.rows[0];
-  const availableFlows = await loadEligibleFlows(
-    input.botId,
-    conversation?.project_id || null
-  );
-  const activeFlow = availableFlows.find(
-    (flow) => String(flow.id) === String(conversation?.flow_id)
-  );
-  const nodes = activeFlow?.flow_json?.nodes || [];
-  const edges = activeFlow?.flow_json?.edges || [];
-  const timeoutTarget = findNextNode(input.waitingNodeId, nodes, edges, ["timeout"]);
-
-  if (timeoutTarget) {
-    const actions = await executeFlowFromNode(
-      timeoutTarget,
-      input.conversationId,
-      input.botId,
-      input.platformUserId,
-      nodes,
-      edges,
-      input.channel,
-      input.io
-    );
-
-    for (const action of actions) {
-      await routeMessage(input.conversationId, action, input.io);
+  await withConversationProcessingLock(input.conversationId, async () => {
+    if (!(await isConversationWaitingOnNode(input.conversationId, input.waitingNodeId))) {
+      return;
     }
 
-    return;
-  }
+    await cancelPendingJobsByConversation(input.conversationId, FLOW_WAIT_JOB_TYPES);
+    clearUserTimers(input.botId, input.platformUserId);
 
-  if (timeoutFallback) {
-    await routeMessage(
-      input.conversationId,
-      {
-        type: "text",
-        text: timeoutFallback,
-      },
-      input.io
+    const conversationRes = await query(
+      `SELECT flow_id, project_id
+       FROM conversations
+       WHERE id = $1`,
+      [input.conversationId]
     );
-  }
+    const conversation = conversationRes.rows[0];
+    const availableFlows = await loadEligibleFlows(
+      input.botId,
+      conversation?.project_id || null
+    );
+    const activeFlow = availableFlows.find(
+      (flow) => String(flow.id) === String(conversation?.flow_id)
+    );
+    const nodes = activeFlow?.flow_json?.nodes || [];
+    const edges = activeFlow?.flow_json?.edges || [];
+    const timeoutTarget = findNextNode(input.waitingNodeId, nodes, edges, ["timeout"]);
+
+    if (timeoutTarget) {
+      const actions = await executeFlowFromNode(
+        timeoutTarget,
+        input.conversationId,
+        input.botId,
+        input.platformUserId,
+        nodes,
+        edges,
+        input.channel,
+        input.io
+      );
+
+      for (const action of actions) {
+        await routeMessage(input.conversationId, action, input.io);
+      }
+
+      return;
+    }
+
+    if (timeoutFallback) {
+      await routeMessage(
+        input.conversationId,
+        {
+          type: "text",
+          text: timeoutFallback,
+        },
+        input.io
+      );
+    }
+  });
 };
 
 const scheduleWaitingNodeInactivity = async (input: {
@@ -1388,7 +1431,7 @@ export const executeFlowFromNode = async (
 
             variables[saveTo] = chunks;
             if (saveTextTo) {
-              variables[saveTextTo] = chunks.map((chunk) => chunk.content).join("\n\n");
+              variables[saveTextTo] = buildKnowledgeLookupText(chunks);
             }
             await persistConversationVariables(conversationId, variables);
             nextHandles = chunks.length > 0 ? ["success", "response"] : ["empty", "no_results", "response"];
@@ -1808,6 +1851,16 @@ export const processIncomingMessage = async (
 
       conversation = updatedConversationRes.rows[0];
     }
+
+    return await withConversationProcessingLock(conversation.id, async () => {
+    const refreshedConversationRes = await query(
+      `SELECT *
+       FROM conversations
+       WHERE id = $1
+       LIMIT 1`,
+      [conversation.id]
+    );
+    conversation = refreshedConversationRes.rows[0] || conversation;
 
     if (text) {
       await query(
@@ -2358,6 +2411,7 @@ export const processIncomingMessage = async (
       conversationId: conversation.id,
       actions: outgoingActions,
     };
+    });
   } catch (err: any) {
     console.error("ENGINE ERROR:", err.message);
   }

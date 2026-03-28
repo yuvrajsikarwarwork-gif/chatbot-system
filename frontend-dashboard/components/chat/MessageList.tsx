@@ -51,6 +51,92 @@ function formatDeliveryStatus(value: unknown) {
   return normalized.replace(/_/g, " ");
 }
 
+function formatKeyLabel(value: string) {
+  if (!value) {
+    return "";
+  }
+
+  if (value.length <= 18) {
+    return value;
+  }
+
+  return `${value.slice(0, 8)}...${value.slice(-8)}`;
+}
+
+function getDeliveryTrace(message: any) {
+  const payload = safeParse(message.content);
+  const events = Array.isArray(message.delivery_events)
+    ? message.delivery_events
+    : Array.isArray(payload.deliveryEvents)
+      ? payload.deliveryEvents
+      : message.delivery_event && typeof message.delivery_event === "object"
+        ? [message.delivery_event]
+        : payload.deliveryEvent && typeof payload.deliveryEvent === "object"
+          ? [payload.deliveryEvent]
+          : [];
+
+  return {
+    deliveryKey: String(message.delivery_key || payload.deliveryKey || "").trim(),
+    providerMessageId: String(
+      message.provider_message_id_resolved ||
+        message.external_message_id ||
+        payload.providerMessageId ||
+        ""
+    ).trim(),
+    deliveryStatus: formatDeliveryStatus(
+      message.delivery_status_resolved || message.status || payload.deliveryStatus
+    ),
+    deliveryError: String(message.delivery_error || payload.deliveryError || "").trim(),
+    events,
+  };
+}
+
+function renderDeliveryTrace(message: any) {
+  const trace = getDeliveryTrace(message);
+  const hasTrace =
+    Boolean(trace.deliveryKey) ||
+    Boolean(trace.providerMessageId) ||
+    Boolean(trace.deliveryStatus) ||
+    Boolean(trace.deliveryError) ||
+    trace.events.length > 0;
+
+  if (!hasTrace) {
+    return null;
+  }
+
+  const latestEvent = trace.events[trace.events.length - 1] as Record<string, any> | undefined;
+  const latestStatus = formatDeliveryStatus(
+    latestEvent?.status || latestEvent?.message_status || latestEvent?.event || ""
+  );
+  const latestTimestamp = formatTimestamp(
+    latestEvent?.timestamp || latestEvent?.created_at || latestEvent?.received_at
+  );
+
+  return (
+    <div className="mt-2 rounded-xl border border-current/10 bg-current/5 px-3 py-2 text-[10px] font-medium uppercase tracking-[0.14em] opacity-80">
+      <div className="flex flex-wrap gap-x-3 gap-y-1">
+        {trace.deliveryStatus ? <span>Status: {trace.deliveryStatus}</span> : null}
+        {trace.providerMessageId ? (
+          <span>Provider Id: {formatKeyLabel(trace.providerMessageId)}</span>
+        ) : null}
+        {trace.deliveryKey ? <span>Trace: {formatKeyLabel(trace.deliveryKey)}</span> : null}
+        {trace.events.length > 0 ? <span>Events: {trace.events.length}</span> : null}
+      </div>
+      {latestStatus || latestTimestamp ? (
+        <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
+          {latestStatus ? <span>Latest: {latestStatus}</span> : null}
+          {latestTimestamp ? <span>{latestTimestamp}</span> : null}
+        </div>
+      ) : null}
+      {trace.deliveryError ? (
+        <div className="mt-1 break-words normal-case tracking-normal opacity-90">
+          {trace.deliveryError}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function renderMessageContent(msg: any) {
   const payload = msg.content
     ? safeParse(msg.content)
@@ -246,6 +332,7 @@ export default function MessageList({ messages }: MessageListProps) {
                 }`}
               >
                 {renderMessageContent(message)}
+                {isSystem ? renderDeliveryTrace(message) : null}
               </div>
               <div
                 className={`mt-1 flex flex-wrap gap-x-2 gap-y-1 break-all text-[9px] font-bold uppercase tracking-[0.22em] opacity-70 ${

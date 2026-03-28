@@ -16,6 +16,7 @@
     "migrate:soft-delete-retention": "node scripts/migrate-soft-delete-retention.js",
     "migrate:ai-node-permission": "node scripts/migrate-ai-node-permission.js",
     "migrate:template-meta-columns": "node scripts/migrate-template-meta-columns.js",
+    "reencrypt:secrets": "npm run build && node scripts/reencrypt-secrets.js",
     "test:support-session-consent": "npm run build && node scripts/test-support-session-consent.js",
     "test:flow-builder-guardrails": "npm run build && node scripts/test-flow-builder-guardrails.js",
     "test:flow-handoffs": "npm run build && node scripts/test-flow-handoffs.js",

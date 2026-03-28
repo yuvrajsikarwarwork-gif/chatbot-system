@@ -130,12 +130,30 @@ export async function updateMessageDeliveryStatusByExternalId(
     return [];
   }
 
+  const payload = metadata
+    ? JSON.stringify({
+        deliveryStatus: status,
+        deliveryEvent: metadata,
+      })
+    : JSON.stringify({
+        deliveryStatus: status,
+      });
+
   const assignments = [
     ...(support.status ? ["status = $2"] : []),
     ...(support.statusUpdatedAt ? ["status_updated_at = NOW()"] : []),
     `content = CASE
-       WHEN $3::jsonb IS NULL THEN content
-       ELSE COALESCE(content, '{}'::jsonb) || $3::jsonb
+       WHEN $3::jsonb IS NULL THEN COALESCE(content, '{}'::jsonb)
+       ELSE jsonb_set(
+         COALESCE(content, '{}'::jsonb) || $3::jsonb,
+         '{deliveryEvents}',
+         COALESCE(COALESCE(content, '{}'::jsonb)->'deliveryEvents', '[]'::jsonb) ||
+           CASE
+             WHEN ($3::jsonb ? 'deliveryEvent') THEN jsonb_build_array($3::jsonb->'deliveryEvent')
+             ELSE '[]'::jsonb
+           END,
+         true
+       )
      END`,
   ];
 
@@ -147,7 +165,60 @@ export async function updateMessageDeliveryStatusByExternalId(
     [
       externalMessageId,
       status,
-      metadata ? JSON.stringify({ deliveryEvent: metadata }) : null,
+      payload,
+    ]
+  );
+
+  return res.rows;
+}
+
+export async function updateMessageDeliveryStatusByOpaqueRef(
+  opaqueRef: string,
+  status: string,
+  metadata?: Record<string, unknown>
+) {
+  const normalizedOpaqueRef = String(opaqueRef || "").trim();
+  if (!normalizedOpaqueRef) {
+    return [];
+  }
+
+  const payload = metadata
+    ? JSON.stringify({
+        deliveryStatus: status,
+        deliveryEvent: metadata,
+      })
+    : JSON.stringify({
+        deliveryStatus: status,
+      });
+
+  const support = await getMessageDeliveryColumnSupport();
+  const assignments = [
+    ...(support.status ? ["status = $2"] : []),
+    ...(support.statusUpdatedAt ? ["status_updated_at = NOW()"] : []),
+    `content = CASE
+       WHEN $3::jsonb IS NULL THEN COALESCE(content, '{}'::jsonb)
+       ELSE jsonb_set(
+         COALESCE(content, '{}'::jsonb) || $3::jsonb,
+         '{deliveryEvents}',
+         COALESCE(COALESCE(content, '{}'::jsonb)->'deliveryEvents', '[]'::jsonb) ||
+           CASE
+             WHEN ($3::jsonb ? 'deliveryEvent') THEN jsonb_build_array($3::jsonb->'deliveryEvent')
+             ELSE '[]'::jsonb
+           END,
+         true
+       )
+     END`,
+  ];
+
+  const res = await query(
+    `UPDATE messages
+     SET ${assignments.join(", ")}
+     WHERE content->>'deliveryKey' = $1
+     RETURNING *`,
+    [
+      normalizedOpaqueRef,
+      status,
+      payload,
     ]
   );
 

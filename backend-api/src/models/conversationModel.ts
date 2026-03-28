@@ -416,7 +416,19 @@ export async function findMessagesForConversation(conversationId: string) {
       m.*,
       COALESCE(m.sender_type, m.sender, 'user') AS sender_type_resolved,
       COALESCE(m.message_type, m.content ->> 'type', 'text') AS message_type_resolved,
-      COALESCE(m.text, m.message, m.content ->> 'text') AS text_resolved
+      COALESCE(m.text, m.message, m.content ->> 'text') AS text_resolved,
+      COALESCE(m.status, m.content ->> 'deliveryStatus', '') AS delivery_status_resolved,
+      COALESCE(m.external_message_id, m.content ->> 'providerMessageId', '') AS provider_message_id_resolved,
+      COALESCE(m.content ->> 'deliveryKey', '') AS delivery_key,
+      COALESCE(m.content -> 'deliveryEvent', '{}'::jsonb) AS delivery_event,
+      COALESCE(
+        m.content -> 'deliveryEvents',
+        CASE
+          WHEN m.content ? 'deliveryEvent' THEN jsonb_build_array(m.content -> 'deliveryEvent')
+          ELSE '[]'::jsonb
+        END
+      ) AS delivery_events,
+      COALESCE(m.content ->> 'deliveryError', '') AS delivery_error
     FROM messages m
     WHERE m.conversation_id = $1
     ORDER BY m.created_at ASC, m.id ASC

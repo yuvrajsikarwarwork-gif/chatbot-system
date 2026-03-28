@@ -8,6 +8,9 @@ export type RetrievedKnowledgeChunk = {
   metadata?: Record<string, unknown> | null;
 };
 
+const MAX_RETRIEVED_CHUNK_CONTENT_CHARS = 1500;
+const MAX_RETRIEVED_TITLE_CHARS = 200;
+
 export async function retrieveKnowledgeForWorkspace(_input: {
   workspaceId?: string | null;
   projectId?: string | null;
@@ -137,11 +140,19 @@ function mapRetrievedChunk(row: {
 }): RetrievedKnowledgeChunk {
   return {
     id: row.id,
-    title: row.title,
-    content: row.content,
+    title: row.title ? truncateText(row.title, MAX_RETRIEVED_TITLE_CHARS) : row.title,
+    content: truncateText(row.content, MAX_RETRIEVED_CHUNK_CONTENT_CHARS),
     score: row.score,
     metadata: row.metadata,
   };
+}
+
+function truncateText(value: string, maxChars: number) {
+  const normalized = String(value || "");
+  if (normalized.length <= maxChars) {
+    return normalized;
+  }
+  return `${normalized.slice(0, Math.max(0, maxChars - 3))}...`;
 }
 
 function getPgErrorCode(error: unknown): string | null {

@@ -6,7 +6,8 @@ export const sendWhatsAppMessage = async (
   phoneNumberId: string,
   accessToken: string,
   toPhone: string,
-  messageText: string
+  messageText: string,
+  opaqueRef?: string | null
 ) => {
   try {
     const url = `https://graph.facebook.com/${META_GRAPH_VERSION}/${phoneNumberId}/messages`;
@@ -16,6 +17,7 @@ export const sendWhatsAppMessage = async (
       recipient_type: "individual",
       to: toPhone,
       type: "text",
+      ...(opaqueRef ? { biz_opaque_callback_data: opaqueRef } : {}),
       text: {
         preview_url: false,
         body: messageText,
